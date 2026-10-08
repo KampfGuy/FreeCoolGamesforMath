@@ -4,7 +4,7 @@ Build a rocket from parts, launch it, and do the math to reach orbit.
 A free, school-safe browser game made for Chromebooks: **no ads, no accounts, no chat, no tracking**.
 Progress and rocket designs are saved only in the browser (`localStorage`).
 
-**Play:** https://kampfguy.github.io/FreeCoolGamesforMath/ (and https://FreeCoolGamesforMath.com once DNS is set up, see below)
+**Play:** https://kampfguy.github.io/FreeCoolGamesforMath/ (https://FreeCoolGamesforMath.com once the domain is registered and DNS is set up, see below)
 
 ## What's in it
 - **Hangar:** snap-build from 11 original parts (capsule, parachute, 3 tanks, 3 engines, stage separator, fins, struts). Drag and drop or tap to add.
@@ -35,16 +35,27 @@ All art is original, drawn with simple canvas shapes.
 Run locally: `python3 -m http.server` in this folder, then open http://localhost:8000.
 
 ## Custom domain: FreeCoolGamesforMath.com
-The repo contains a `CNAME` file with `FreeCoolGamesforMath.com`. To make the domain work:
+**Status (2026-10-08):** `freecoolgamesformath.com` does not resolve (NXDOMAIN; it looks unregistered), so DNS is **not** set up yet.
 
-1. **Register the domain** `freecoolgamesformath.com` at a registrar (as of 2026-10-08 it did not resolve / was not registered).
-2. At the registrar's DNS settings add:
+Why the `CNAME` file is on a branch: with "Deploy from branch", a `CNAME` file in `main` makes GitHub redirect
+`kampfguy.github.io/FreeCoolGamesforMath` to the custom domain, which would break the game while the domain doesn't exist.
+So the `CNAME` file (`FreeCoolGamesforMath.com`) is ready on the **`custom-domain`** branch.
+
+When you're ready:
+1. **Register** `freecoolgamesformath.com` at any registrar.
+2. In the registrar's DNS settings add:
    - Apex `@` **A** records → `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`
-   - (optional) Apex `@` **AAAA** records → `2606:50c0:8000::153`, `2606:50c0:8001::153`, `2606:50c0:8002::153`, `2606:50c0:8003::153`
-   - Or, if the DNS host supports **ALIAS/ANAME/CNAME-flattening** at the apex: `@` → `kampfguy.github.io`
+   - (optional) Apex `@` **AAAA** → `2606:50c0:8000::153`, `2606:50c0:8001::153`, `2606:50c0:8002::153`, `2606:50c0:8003::153`
+   - Or, if your DNS host supports **ALIAS / ANAME / CNAME-flattening** at the apex: `@` → `kampfguy.github.io`
    - `www` **CNAME** → `kampfguy.github.io`
-3. Repo **Settings → Pages**: confirm the custom domain is `FreeCoolGamesforMath.com`, wait for the DNS check to pass, then tick **Enforce HTTPS**.
-4. Recommended: verify the domain under GitHub **Settings → Pages → Verified domains** to prevent takeover.
+3. Turn the domain on (either way works):
+   - `git fetch && git checkout main && git merge origin/custom-domain && git push`, **or**
+   - GitHub repo **Settings → Pages → Custom domain** → `FreeCoolGamesforMath.com` → Save.
+4. Once the DNS check passes, tick **Enforce HTTPS**. Optional: add the domain under your GitHub account's **Settings → Pages → Verified domains**.
+
+![Title screen](docs/title.png)
+![Hangar](docs/hangar.png)
+![Flight](docs/flight.png)
 
 ## License
 MIT © 2026 Kampf Kaiser
