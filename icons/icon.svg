@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0b1236"/>
+  <circle cx="256" cy="700" r="380" fill="#2f78c4"/>
+  <ellipse cx="256" cy="256" rx="200" ry="70" fill="none" stroke="#ffd23f" stroke-width="12" stroke-dasharray="26 18" transform="rotate(-20 256 256)"/>
+  <g transform="rotate(25 256 250)">
+    <path d="M220 330 L292 330 L284 370 L228 370Z" fill="#5a6178" stroke="#1b2140" stroke-width="8"/>
+    <rect x="216" y="200" width="80" height="132" rx="12" fill="#f4f1ea" stroke="#1b2140" stroke-width="8"/>
+    <rect x="216" y="214" width="80" height="12" fill="#ff8a3d"/>
+    <rect x="216" y="306" width="80" height="12" fill="#ff8a3d"/>
+    <path d="M216 200 L236 140 Q256 126 276 140 L296 200Z" fill="#36c5b8" stroke="#1b2140" stroke-width="8" stroke-linejoin="round"/>
+    <circle cx="256" cy="172" r="15" fill="#c4ecff" stroke="#1b2140" stroke-width="6"/>
+    <path d="M216 290 L180 340 L180 362 L216 334Z M296 290 L332 340 L332 362 L296 334Z" fill="#ff8a3d" stroke="#1b2140" stroke-width="7" stroke-linejoin="round"/>
+    <path d="M236 374 Q256 450 276 374Z" fill="#ffd23f"/>
+  </g>
+  <text x="256" y="104" font-family="system-ui,sans-serif" font-size="64" font-weight="900" fill="#ffd23f" text-anchor="middle">Δv</text>
+</svg>

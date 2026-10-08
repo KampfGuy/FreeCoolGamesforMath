@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FreeCoolGamesforMath.com: Build a Rocket, Do the Math, Fly to Orbit</title>
+<meta name="description" content="Build a rocket from parts, launch it and reach orbit. A free, school-safe math game made for Chromebooks. No ads, no accounts, no chat.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="theme-color" content="#0b1236">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="cv" aria-label="Game view"></canvas>
+<div id="ui">
+  <section id="scr-title" class="screen active">
+    <div class="title-box">
+      <h1 class="logo"><span class="w1">FreeCoolGames</span><span class="w2">for</span><span class="w3">Math</span><span class="w4">.com</span></h1>
+      <p class="tag">Build a rocket. Do the math. Fly it to orbit.</p>
+      <div class="title-btns">
+        <button class="big primary" data-go="missions">▶ Play</button>
+        <button class="big" data-go="help">How to play</button>
+      </div>
+      <p class="fine">No ads · No accounts · No chat · Works offline</p>
+    </div>
+  </section>
+
+  <section id="scr-missions" class="screen">
+    <header class="bar"><button data-go="title">◀ Back</button><h2>Pick a mission</h2><span class="grow"></span><span id="star-total" class="pill"></span></header>
+    <div id="mission-list" class="cards"></div>
+  </section>
+
+  <section id="scr-hangar" class="screen">
+    <aside id="palette" class="panel"></aside>
+    <div id="hangar-view">
+      <div class="hv-top">
+        <button data-act="back">◀ Missions</button>
+        <button data-act="ex1">Example: Hopper</button>
+        <button data-act="ex2">Example: Orbiter</button>
+        <button data-act="clear">Clear</button>
+        <button data-act="help">?</button>
+      </div>
+      <div class="hv-hint">Drag parts onto the rocket (they snap). Tap a part on the rocket to select it, drag it off to remove.</div>
+    </div>
+    <aside id="stats" class="panel">
+      <div id="st-mission"></div>
+      <div id="st-budget" class="block"></div>
+      <div id="st-stages" class="block"></div>
+      <div id="st-dv" class="block"></div>
+      <div id="st-sel" class="block"></div>
+      <ul id="st-warn"></ul>
+      <button id="b-launch" class="big primary">🚀 Launch</button>
+    </aside>
+  </section>
+
+  <section id="scr-flight" class="screen">
+    <div id="hud-l" class="panel hud">
+      <div class="row"><b>Altitude</b><span id="h-alt"></span></div>
+      <div class="row"><b>Speed</b><span id="h-spd"></span></div>
+      <div class="row"><b>Up / down</b><span id="h-vs"></span></div>
+      <div class="row"><b>Sideways</b><span id="h-hs"></span></div>
+      <div class="row"><b>Circle speed here</b><span id="h-cs"></span></div>
+      <div class="meter" title="Sideways speed ÷ circle speed"><div id="h-obar"></div><span id="h-olbl"></span></div>
+    </div>
+    <div id="hud-c" class="panel hud"><div id="h-goal"></div><div id="h-goalstate"></div></div>
+    <div id="hud-r" class="panel hud">
+      <div class="row"><b>High point (Ap)</b><span id="h-ap"></span></div>
+      <div class="row"><b>Low point (Pe)</b><span id="h-pe"></span></div>
+      <div class="row"><b>Stage Δv</b><span id="h-sdv"></span></div>
+      <div class="row"><b>Total Δv left</b><span id="h-tdv"></span></div>
+      <div class="row"><b>TWR now</b><span id="h-twr"></span></div>
+      <div class="row"><b>G-force</b><span id="h-g"></span></div>
+      <div class="row"><b>Stage fuel</b><span id="h-fuel"></span></div>
+      <div class="meter fuel"><div id="h-fbar"></div></div>
+      <div class="row small"><b>Time</b><span id="h-time"></span></div>
+    </div>
+    <div id="hud-b" class="panel">
+      <button class="ctl" id="b-left" title="Turn left (A or ←)" aria-label="Turn left">⟲</button>
+      <button class="ctl" id="b-right" title="Turn right (D or →)" aria-label="Turn right">⟳</button>
+      <div class="thr">
+        <button id="b-thr0" title="Cut throttle (X)">0</button>
+        <input id="thr" type="range" min="0" max="100" value="0" aria-label="Throttle">
+        <button id="b-thr100" title="Full throttle (Z)">MAX</button>
+        <span id="thr-lbl">0%</span>
+      </div>
+      <button class="ctl stage" id="b-stage" title="Stage (Space)">STAGE<small>Space</small></button>
+      <button id="b-hold" title="Auto-point mode (H)">Point: Free<small>H</small></button>
+      <button id="b-chute" title="Arm parachute (P)">Chute<small>P</small></button>
+      <button id="b-map" title="Map (M)">Map<small>M</small></button>
+      <button id="b-warp" title="Time warp (, and .)">×1<small>Warp</small></button>
+      <button id="b-zin" title="Zoom in (+)">+</button>
+      <button id="b-zout" title="Zoom out (−)">−</button>
+      <button id="b-pause" title="Pause (Esc)">⏸</button>
+    </div>
+  </section>
+
+  <div id="ov-results" class="overlay"><div class="dlg"></div></div>
+  <div id="ov-pause" class="overlay"><div class="dlg">
+    <h2>Paused</h2>
+    <div class="col">
+      <button class="big primary" data-act="resume">Resume</button>
+      <button class="big" data-act="finish">End flight &amp; see results</button>
+      <button class="big" data-act="relaunch">Restart flight</button>
+      <button class="big" data-act="tohangar">Back to hangar</button>
+      <button class="big" data-act="help">How to play</button>
+    </div>
+  </div></div>
+  <div id="ov-help" class="overlay"><div class="dlg wide">
+    <h2>How to play</h2>
+    <div class="help-grid">
+      <div>
+        <h3>1 · Build</h3>
+        <p>Drag parts from the left onto the rocket; they snap into place. Put the <b>Pilot Capsule</b> on top. Tanks hold fuel, engines burn it. A <b>Stage Separator</b> splits the rocket into stages; press STAGE to drop the empty bottom part. Drag <b>fins</b> or <b>struts</b> onto a tank or engine.</p>
+        <h3>2 · Fly</h3>
+        <p><b>Space</b> / STAGE = start engines, then drop stages. <b>W/S</b> or <b>↑/↓</b> = throttle (<b>Z</b> max, <b>X</b> zero). <b>A/D</b> or <b>←/→</b> = turn. Or hold the mouse / trackpad on the screen to point that way. <b>H</b> = auto-point, <b>M</b> = map, <b>P</b> = parachute, <b>,</b> <b>.</b> = time warp, <b>Esc</b> = pause. Two-finger scroll zooms.</p>
+        <h3>3 · Orbit trick</h3>
+        <p>Fly up to about 8–10 km, then tip over sideways. Watch the <b>Sideways</b> speed climb toward <b>Circle speed</b>. When your low point (Pe) is above 30 km, you're in orbit!</p>
+      </div>
+      <div>
+        <h3>The math</h3>
+        <p><b>TWR</b> = thrust ÷ weight. More than 1 means you can lift off.</p>
+        <p><b>Δv</b> ("delta-v") = how much speed your fuel can add. Δv = Isp × 9.81 × ln(full mass ÷ empty mass). Dropping empty stages makes the rest lighter, so you get more Δv!</p>
+        <p><b>Isp</b> = how efficient an engine is (bigger is better). Engines are a bit weaker in thick air.</p>
+        <p><b>Circle speed</b> = √(μ ÷ r): how fast you must go sideways to keep falling <i>around</i> the planet instead of into it. On Numeria that's about 1,600 m/s.</p>
+        <p><b>Ap / Pe</b> = the highest and lowest points of your path.</p>
+        <p><b>Soft landing:</b> touch down under 10 m/s (12 on water). Parachutes help!</p>
+      </div>
+    </div>
+    <button class="big primary" data-act="closehelp">Got it</button>
+  </div></div>
+  <div id="toasts" aria-live="polite"></div>
+</div>
+<noscript><p style="color:#fff;padding:2em">This game needs JavaScript turned on.</p></noscript>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
