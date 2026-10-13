@@ -1,0 +1,3 @@
+// Example craft for the fleet update (carrier rockets with payloads).
+export const EX_SAT = [{ type: 'antenna' }, { type: 'probe' }, { type: 'battery', solar: 1 }, { type: 'payDec' }, { type: 'fairing', shape: 'bulb', len: 2 }, { type: 'probe' }, { type: 'tankM', struts: 1 }, { type: 'engV' }, { type: 'dec' }, { type: 'tankL', struts: 1, side: { nose: 'noseS', body: 'srbS', eng: '' } }, { type: 'engB', fins: 1 }];
+export const EX_LANDER = [{ type: 'probe' }, { type: 'tankS' }, { type: 'engS', legs: 1 }, { type: 'payDec' }, { type: 'probe' }, { type: 'tankM' }, { type: 'engV' }, { type: 'dec' }, { type: 'tankL', struts: 1 }, { type: 'engV' }, { type: 'dec' }, { type: 'tankL', struts: 1 }, { type: 'tankL' }, { type: 'engB', fins: 1 }];

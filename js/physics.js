@@ -1,5 +1,5 @@
 // Planet, staging math (delta-v, TWR) and orbit math.
-import { PARTS, G0, FAIR_SHAPES, FAIR_LEN, fairShellMass, fairShellCost, boosterParts } from './parts.js?v=boost1';
+import { PARTS, G0, FAIR_SHAPES, FAIR_LEN, fairShellMass, fairShellCost, boosterParts } from './parts.js?v=fleet1';
 
 export const PLANET = { key: 'numeria', name: 'Numeria', R: 300000, atm: 30000, rho0: 1.2, H: 4500 };
 PLANET.mu = G0 * PLANET.R * PLANET.R;
@@ -77,7 +77,7 @@ export function splitSections(stack) {
 export const srbFuel = (p) => (p.sf != null ? p.sf : PARTS[p.type].sfuel || 0);
 
 export function sectionInfo(parts) {
-  const o = { dry: 0, fuel: 0, sfuel: 0, thrust: 0, ispVac: 0, ispAtm: 0, liqThrust: 0, liqIspVac: 0, liqIspAtm: 0, srbs: 0, fins: 0, struts: 0, legs: 0, sides: 0, height: 0, cost: 0, engines: 0, tanks: 0, capsule: false, command: false, chute: false };
+  const o = { dry: 0, fuel: 0, sfuel: 0, thrust: 0, ispVac: 0, ispAtm: 0, liqThrust: 0, liqIspVac: 0, liqIspAtm: 0, srbs: 0, fins: 0, struts: 0, legs: 0, sides: 0, height: 0, cost: 0, engines: 0, tanks: 0, capsule: false, command: false, chute: false, solar: 0, antenna: 0, battery: 0, probe: 0, payDec: 0 };
   let flowV = 0, flowA = 0, lflowV = 0, lflowA = 0;
   for (const p of parts) {
     const P = PARTS[p.type];
@@ -91,6 +91,11 @@ export function sectionInfo(parts) {
     if (p.type === 'fairing') { o.cost += fairShellCost(p.len); if (!p.jett) o.dry += fairShellMass(p.len); }
     if (p.fins) { o.fins++; o.dry += PARTS.fins.mass; o.cost += PARTS.fins.cost; }
     if (p.legs) { o.legs++; o.dry += PARTS.legs.mass; o.cost += PARTS.legs.cost; }
+    if (p.solar) { o.solar++; o.dry += PARTS.solar.mass; o.cost += PARTS.solar.cost; }
+    if (P.antenna) o.antenna++;
+    if (P.battery) o.battery++;
+    if (p.type === 'probe') o.probe++;
+    if (p.type === 'payDec') o.payDec++;
     if (p.struts) { o.struts++; o.dry += PARTS.struts.mass; o.cost += PARTS.struts.cost; }
     // side boosters: the decoupler pair is counted here; booster mass is tracked separately (it drops first)
     if (p.side) { o.sides++; o.dry += PARTS.radDec.mass; o.cost += PARTS.radDec.cost + 2 * boosterParts(p.side).reduce((a, q) => a + PARTS[q.type].cost, 0); }
@@ -210,8 +215,8 @@ export function designSummary(stack) {
   if (!stack.length) errors.push('Drag a Pilot Capsule or Probe Core in to start.');
   else if (cmdIdx < 0) errors.push('Add a Pilot Capsule or a Probe Core (something has to steer!).');
   else {
-    const topReal = stack.findIndex((p) => p.type !== 'chute' && !PARTS[p.type].nose);
-    if (topReal !== cmdIdx) errors.push('Put the capsule or probe core on top (only a parachute or nose cone can sit above it).');
+    const topReal = stack.findIndex((p) => p.type !== 'chute' && !PARTS[p.type].nose && !PARTS[p.type].antenna);
+    if (topReal !== cmdIdx) errors.push('Put the capsule or probe core on top (only a parachute, nose cone or antenna can sit above it).');
   }
   const fairs = stack.map((p, i) => (p.type === 'fairing' ? i : -1)).filter((i) => i >= 0);
   if (fairs.length > 1) errors.push('Only one fairing per rocket, please.');
@@ -221,6 +226,9 @@ export function designSummary(stack) {
     if (s.info.liqThrust && !s.info.tanks) warns.push(`Stage ${s.num} has an engine but no fuel tank.`);
     if (s.info.tanks && !s.info.liqThrust && !s.info.command) warns.push(`Stage ${s.num} has fuel but no engine to burn it.`);
   });
+  const pd = stack.findIndex((p) => p.type === 'payDec');
+  if (pd === 0) errors.push('A Payload Separator goes UNDER the payload it releases.');
+  else if (pd > 0 && fairs.length && fairs[0] < pd) warns.push('The fairing is above the Payload Separator: it will be released together with the payload.');
   for (const b of boosters) if (b.info.fuel && !b.info.liqThrust) warns.push('A side booster has a tank but no engine: pick an engine for it.');
   if (stack.some((p, i) => i > 0 && PARTS[p.type].nose && !(i === 1 && stack[0].type === 'chute'))) warns.push('Nose cones only help on the very top.');
   if (stages.length && stages[0].thrust && stages[0].twr < 1) warns.push(`Stage 1 TWR is ${stages[0].twr.toFixed(2)}. Below 1 = too heavy to lift off!`);
@@ -253,4 +261,40 @@ export function landingResult({ vDown, vSide, tilt, water = false, legs = false 
   if (sp <= limit) return { safe: true, why: 'soft' };
   if (legs && vDown <= LEG_VMAX && vSide <= LEG_HMAX && Math.abs(tilt) <= LEG_TILT) return { safe: true, why: 'legs' };
   return { safe: false, limit, sp };
+}
+
+// ---- Kepler propagation on rails (universal variables; works for ellipses and hyperbolas).
+const stumpC = (z) => (z > 1e-8 ? (1 - Math.cos(Math.sqrt(z))) / z : z < -1e-8 ? (Math.cosh(Math.sqrt(-z)) - 1) / -z : 0.5 - z / 24);
+const stumpS = (z) => { if (z > 1e-8) { const q = Math.sqrt(z); return (q - Math.sin(q)) / (q * q * q); } if (z < -1e-8) { const q = Math.sqrt(-z); return (Math.sinh(q) - q) / (q * q * q); } return 1 / 6 - z / 120; };
+export function keplerStep(px, py, vx, vy, mu, dt) {
+  const r0 = Math.hypot(px, py), v2 = vx * vx + vy * vy, vr0 = (px * vx + py * vy) / r0, sm = Math.sqrt(mu);
+  const alpha = 2 / r0 - v2 / mu;
+  let chi = alpha > 1e-12 ? sm * alpha * dt : (sm * dt) / r0, C = 0.5, S = 1 / 6, z = 0;
+  for (let i = 0; i < 60; i++) {
+    z = alpha * chi * chi; C = stumpC(z); S = stumpS(z);
+    const F = ((r0 * vr0) / sm) * chi * chi * C + (1 - alpha * r0) * chi * chi * chi * S + r0 * chi - sm * dt;
+    const dF = ((r0 * vr0) / sm) * chi * (1 - z * S) + (1 - alpha * r0) * chi * chi * C + r0;
+    const d = F / dF; chi -= d;
+    if (Math.abs(d) < 1e-10 * (1 + Math.abs(chi))) break;
+  }
+  z = alpha * chi * chi; C = stumpC(z); S = stumpS(z);
+  const f = 1 - ((chi * chi) / r0) * C, g = dt - ((chi * chi * chi) / sm) * S;
+  const x = f * px + g * vx, y = f * py + g * vy, r = Math.hypot(x, y);
+  const fd = (sm / (r * r0)) * (z * chi * S - chi), gd = 1 - ((chi * chi) / r) * C;
+  return { px: x, py: y, vx: fd * px + gd * vx, vy: fd * py + gd * vy };
+}
+
+// ---- Vessel type from its parts.
+export const VESSEL_TYPES = ['Rocket', 'Satellite', 'Lander', 'Probe', 'Station', 'Capsule', 'Debris'];
+export function classifyParts(parts, boosters = 0) {
+  const i = sectionInfo(parts);
+  if (!i.command) return 'Debris';
+  const engines = i.engines > 0 || boosters > 0;
+  if (i.payDec && engines) return 'Rocket'; // a carrier with a payload on top
+  if (i.legs && engines) return 'Lander';
+  if (i.antenna && i.solar && !i.capsule) return 'Satellite';
+  if (i.capsule && i.solar && i.battery && !engines) return 'Station';
+  if (engines) return 'Rocket';
+  if (i.antenna && i.solar) return 'Satellite';
+  return i.probe ? 'Probe' : 'Capsule';
 }

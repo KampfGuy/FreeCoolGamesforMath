@@ -81,3 +81,12 @@ MIT © 2026 Kampf Kaiser
 ![Side boosters burning](docs/flight-boosters-burning.png)
 ![Booster separation](docs/flight-booster-separation.png)
 ![Fairing separation](docs/flight-fairing-separation.png)
+
+## Fleet update (fleet1): many craft in one world
+- **Payload Separator** + **R / Release**: anything above it becomes its own craft. Dropped stages with a probe core or capsule become craft too; others become debris (max 30, cleaned up).
+- New parts: **Antenna**, **Battery Pack**, **Solar Panels** (probe + antenna + solar = Satellite; command + engine + legs = Lander).
+- Switch craft with **[ ]** or the **Vessels** list (**V**, tap ✎ to rename). The map shows every craft and its orbit. Inactive craft move on rails (Kepler orbits, SOI changes); landed craft stay put.
+- **Sandbox World** / **Constellation** use a saved world (localStorage): **Leave in space**, launch again, old craft are still there. **Tracking** lists them (Fly / rename / remove, Reset world).
+- New missions: Deploy a Satellite, Moon Lander Drop, Constellation, Sandbox World. Examples: Satellite Launcher, Lander Carrier.
+
+![Satellite deploying](docs/fleet-satellite-deploying.png) ![Map with several craft](docs/fleet-map-multiple.png) ![Tracking](docs/fleet-tracking.png)

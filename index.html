@@ -9,8 +9,8 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="theme-color" content="#0b1236">
-<meta name="fcgm-version" content="boost1">
-<link rel="stylesheet" href="css/style.css?v=boost1">
+<meta name="fcgm-version" content="fleet1">
+<link rel="stylesheet" href="css/style.css?v=fleet1">
 </head>
 <body>
 <canvas id="cv" aria-label="Game view"></canvas>
@@ -21,6 +21,7 @@
       <p class="tag">Build a rocket. Do the math. Fly it to orbit.</p>
       <div class="title-btns">
         <button class="big primary" data-go="missions">▶ Play</button>
+        <button class="big" data-go="tracking">🛰️ Tracking</button>
         <button class="big" data-go="help">How to play</button>
       </div>
       <p class="fine">No ads · No accounts · No chat · Works offline</p>
@@ -28,8 +29,13 @@
   </section>
 
   <section id="scr-missions" class="screen">
-    <header class="bar"><button data-go="title">◀ Back</button><h2>Pick a mission</h2><span class="grow"></span><span id="star-total" class="pill"></span></header>
+    <header class="bar"><button data-go="title">◀ Back</button><h2>Pick a mission</h2><span class="grow"></span><button data-go="tracking">🛰️ Tracking</button><span id="star-total" class="pill"></span></header>
     <div id="mission-list" class="cards"></div>
+  </section>
+
+  <section id="scr-tracking" class="screen">
+    <header class="bar"><button data-go="missions">◀ Missions</button><h2>Tracking: your world</h2><span id="trk-time" class="pill"></span><span class="grow"></span><button class="primary" data-a="launch">🚀 Launch new craft</button><button data-a="reset">Reset world</button></header>
+    <div id="trk-list" class="trk-wrap panel"></div>
   </section>
 
   <section id="scr-hangar" class="screen">
@@ -41,6 +47,8 @@
         <button data-act="ex2">Example: Orbiter</button>
         <button data-act="ex3">Example: Moon Lander</button>
         <button data-act="ex4" title="Probe core under an ogive fairing, two solid side boosters, reaches orbit">Example: Booster Heavy</button>
+        <button data-act="ex5" title="Carrier rocket with a satellite under a fairing on a Payload Separator">Example: Satellite Launcher</button>
+        <button data-act="ex6" title="Carrier rocket with a legged probe lander on a Payload Separator">Example: Lander Carrier</button>
         <button data-act="clear">Clear</button>
         <button data-act="help">?</button>
       </div>
@@ -59,6 +67,7 @@
 
   <section id="scr-flight" class="screen">
     <div id="hud-l" class="panel hud">
+      <div class="row"><b>Craft</b><span id="h-craft"></span></div>
       <div class="row"><b>Orbiting</b><span id="h-body"></span></div>
       <div class="row"><b>Altitude</b><span id="h-alt"></span></div>
       <div class="row"><b>Speed</b><span id="h-spd"></span></div>
@@ -66,6 +75,10 @@
       <div class="row"><b>Sideways</b><span id="h-hs"></span></div>
       <div class="row"><b>Circle speed here</b><span id="h-cs"></span></div>
       <div class="meter" title="Sideways speed ÷ circle speed"><div id="h-obar"></div><span id="h-olbl"></span></div>
+    </div>
+    <div id="hud-v" class="panel hud" hidden>
+      <div class="vh"><button id="b-vprev" title="Previous craft ([)">◀ [</button><b>Vessels</b><button id="b-vnext" title="Next craft (])">] ▶</button></div>
+      <div id="v-list"></div>
     </div>
     <div id="hud-c" class="panel hud"><div id="h-goal"></div><div id="h-goalstate"></div></div>
     <div id="hud-r" class="panel hud">
@@ -94,6 +107,8 @@
       <button id="b-chute" title="Arm parachute (P)">Chute<small>P</small></button>
       <button id="b-legs" title="Landing legs (G)">Legs<small>G</small></button>
       <button id="b-fair" title="Open the fairing (F)">Fairing<small>F</small></button>
+      <button id="b-rel" title="Release payload (R)">Release<small>R</small></button>
+      <button id="b-ves" title="Vessels list (V), switch with [ and ]">Vessels<small>V [ ]</small></button>
       <button id="b-map" title="Map (M)">Map<small>M</small></button>
       <button id="b-warp" title="Time warp (, and .)">×1<small>Warp</small></button>
       <button id="b-zin" title="Zoom in (+)">+</button>
@@ -108,6 +123,7 @@
     <div class="col">
       <button class="big primary" data-act="resume">Resume</button>
       <button class="big" data-act="finish">End flight &amp; see results</button>
+      <button class="big primary" data-act="leave" hidden>Leave in space (craft stay in the world)</button>
       <button class="big" data-act="relaunch">Restart flight</button>
       <button class="big" data-act="tohangar">Back to hangar</button>
       <button class="big" data-act="help">How to play</button>
@@ -123,6 +139,8 @@
         <p><b>Solid boosters (SRBs)</b>: fuel built in, lots of push, cheap, but once lit they burn at full power until empty: the throttle can't slow them.
         <b>Side Boosters</b>: drop the radial decoupler on a core tank to add a pair; select it to choose SRB or tank + engine and a nose cone. They fire with Stage 1, then STAGE drops them.
         <b>Nose cones</b> (optional) cut drag on top of the rocket or a booster. A <b>Fairing</b> goes <i>under</i> your payload and covers it; pick Ogive, Cone, Bullet or Bulbous. Press <b>F</b> to split it off in space.</p>
+        <h3>Many craft</h3>
+        <p>A <b>Payload Separator</b> goes under a satellite or lander: press <b>R</b> (Release) and it flies off as its own craft. A dropped stage with a probe core or capsule also becomes its own craft. Switch craft with <b>[</b> and <b>]</b> or the <b>Vessels</b> list (<b>V</b>). Probe core + <b>Antenna</b> + <b>Solar Panels</b> = a Satellite; command + engine + legs = a Lander. In <b>Sandbox World</b> choose <b>Leave in space</b> and your craft stay up there while you launch more. See them all in <b>Tracking</b>.</p>
         <h3>2 · Fly</h3>
         <p><b>Space</b> / STAGE = start engines, then drop stages. <b>W/S</b> or <b>↑/↓</b> = throttle (<b>Z</b> max, <b>X</b> zero). <b>A/D</b> or <b>←/→</b> = turn. Or hold the mouse / trackpad on the screen to point that way. <b>H</b> = auto-point, <b>M</b> = map, <b>P</b> = parachute, <b>G</b> = landing legs, <b>F</b> = open fairing, <b>,</b> <b>.</b> = time warp (up to ×5000 when coasting in space), <b>Esc</b> = pause. Two-finger scroll zooms.</p>
         <h3>3 · Orbit trick</h3>
@@ -146,6 +164,6 @@
   <div id="toasts" aria-live="polite"></div>
 </div>
 <noscript><p style="color:#fff;padding:2em">This game needs JavaScript turned on.</p></noscript>
-<script type="module" src="js/main.js?v=boost1"></script>
+<script type="module" src="js/main.js?v=fleet1"></script>
 </body>
 </html>

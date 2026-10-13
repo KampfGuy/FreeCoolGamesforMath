@@ -1,8 +1,8 @@
 // Hangar: snap-build a rocket from parts (drag & drop or tap).
-import { PARTS, PART_ORDER, W, drawStack, drawPart, drawFins, drawStruts, drawLegs, drawRadDec, legFootDrop, makeIcon, isRadialTarget, radialKey, DEFAULT_SIDE, FAIR_LEN, SIDE_DX, COL } from './parts.js?v=boost1';
-import { splitSections } from './physics.js?v=boost1';
+import { PARTS, PART_ORDER, W, drawStack, drawPart, drawFins, drawStruts, drawLegs, drawRadDec, drawSolar, legFootDrop, makeIcon, isRadialTarget, radialKey, DEFAULT_SIDE, FAIR_LEN, SIDE_DX, COL } from './parts.js?v=fleet1';
+import { splitSections } from './physics.js?v=fleet1';
 
-const MAX_PARTS = 16;
+const MAX_PARTS = 20;
 
 export class Builder {
   constructor({ paletteEl, viewEl, onChange, toast }) {
@@ -115,10 +115,10 @@ export class Builder {
       return;
     }
     let idx;
-    const firstReal = () => { let k = 0; while (k < this.stack.length && (this.stack[k].type === 'chute' || PARTS[this.stack[k].type].nose)) k++; return k; };
+    const firstReal = () => { let k = 0; while (k < this.stack.length && (this.stack[k].type === 'chute' || PARTS[this.stack[k].type].nose || PARTS[this.stack[k].type].antenna)) k++; return k; };
     if (PARTS[type].command) idx = firstReal();
     else if (type === 'chute') idx = this.stack[0] && PARTS[this.stack[0].type].nose ? 1 : 0;
-    else if (PARTS[type].nose) idx = 0;
+    else if (PARTS[type].nose || PARTS[type].antenna) idx = 0;
     else if (type === 'fairing' && this.sel < 0) { const c = this.stack.findIndex((p) => PARTS[p.type].command); idx = c >= 0 ? c + 1 : 0; }
     else idx = this.sel >= 0 ? this.sel + 1 : this.stack.length;
     this.applyDrop(type, { kind: 'insert', index: idx });
@@ -227,7 +227,7 @@ export class Builder {
       ctx.save(); ctx.globalAlpha = 0.75; ctx.translate(dr.x, dr.y); ctx.scale(s, s);
       const h = P.radial ? 1.6 : P.h;
       ctx.translate(0, -h / 2);
-      if (dr.type === 'radDec') drawRadDec(ctx, h, 1.6 / s); else if (dr.type === 'fins') drawFins(ctx, h, 1.6 / s); else if (dr.type === 'legs') drawLegs(ctx, h, 1.6 / s, 1); else if (dr.type === 'struts') drawStruts(ctx, h, 1.6 / s); else drawPart(ctx, dr.type, 1.6 / s);
+      if (dr.type === 'radDec') drawRadDec(ctx, h, 1.6 / s); else if (dr.type === 'fins') drawFins(ctx, h, 1.6 / s); else if (dr.type === 'solar') drawSolar(ctx, h, 1.6 / s); else if (dr.type === 'legs') drawLegs(ctx, h, 1.6 / s, 1); else if (dr.type === 'struts') drawStruts(ctx, h, 1.6 / s); else drawPart(ctx, dr.type, 1.6 / s);
       ctx.restore();
       if (dr.from >= 0 && !dr.over) {
         ctx.fillStyle = '#ef476f'; ctx.font = '700 14px system-ui, sans-serif'; ctx.textAlign = 'center';

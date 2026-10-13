@@ -1,9 +1,11 @@
 // FreeCoolGamesforMath.com: rocket builder + flight. Screens, input, missions, HUD.
-import { PARTS, W, TAU, drawStack, FAIR_SHAPES, FAIR_LEN, SIDE_BODIES, SIDE_ENGINES, SIDE_NOSES, fairShellMass } from './parts.js?v=boost1';
-export const VERSION = 'boost1';
-import { PLANET, BODIES, designSummary, ORBIT_DV } from './physics.js?v=boost1';
-import { Flight, WARPS, fmtKm, drawStars } from './flight.js?v=boost1';
-import { Builder } from './builder.js?v=boost1';
+import { PARTS, W, TAU, drawStack, FAIR_SHAPES, FAIR_LEN, SIDE_BODIES, SIDE_ENGINES, SIDE_NOSES, fairShellMass } from './parts.js?v=fleet1';
+export const VERSION = 'fleet1';
+import { PLANET, BODIES, designSummary, ORBIT_DV, orbitOf } from './physics.js?v=fleet1';
+import { Flight, WARPS, fmtKm, drawStars, VESSEL_ICON } from './flight.js?v=fleet1';
+import { World } from './world.js?v=fleet1';
+import { EX_SAT, EX_LANDER } from './examples.js?v=fleet1';
+import { Builder } from './builder.js?v=fleet1';
 
 const $ = (s) => document.querySelector(s);
 const cv = $('#cv'); const ctx = cv.getContext('2d');
@@ -45,9 +47,19 @@ const MISSIONS = [
     check: (s) => !!s.soi.ember, stars: [['Reach Ember orbit', (s) => !!s.soi.ember], ['Thrifty: cost 2,500 cr or less', (s, c) => c <= 2500], ['Efficient: under 3,300 m/s Δv used', (s) => !!s.soi.ember && s.dvUsed < 3300]] },
   { id: 'heavy', name: 'Heavy Lift', goal: 'Reach orbit using side boosters.', budget: 3500, hint: 'Add Side Boosters (radial decouplers) to a core tank. They fire with Stage 1; press STAGE when they burn out to drop the empty weight. Try "Example: Booster Heavy". A fairing or nose cone cuts drag.',
     check: (s) => s.orbit && s.usedBoosters, stars: [['Orbit with side boosters', (s) => s.orbit && s.usedBoosters], ['Thrifty: cost 2,300 cr or less', (s, c) => c <= 2300], ['Open the fairing in space', (s) => s.orbit && s.usedBoosters && s.fairingJett]] },
+  { id: 'sat', name: 'Deploy a Satellite', goal: 'Release a satellite (probe core + antenna + solar panels) into orbit with Pe above 30 km.', budget: 3500, hint: 'Put a Payload Separator under the satellite, cover it with a fairing, reach orbit, press F to open the fairing, then R to release. Try "Example: Satellite Launcher".',
+    check: (s, w) => satsInOrbit(w, s) >= 1, stars: [['Satellite in orbit', (s, c, w) => satsInOrbit(w, s) >= 1], ['Thrifty: cost 2,800 cr or less', (s, c) => c <= 2800], ['Carrier stays in orbit too', (s, c, w) => satsInOrbit(w, s) >= 1 && w.vessels.some((v) => v.stats === s && v.vtype === 'Rocket' && inOrbit(v))]] },
+  { id: 'landerdrop', name: 'Moon Lander Drop', goal: 'Carry a lander to Lumo, release it (R), then land it softly.', budget: 5200, dv: 4200, hint: 'Lander = probe core + engine + landing legs, on a Payload Separator. Get into Lumo\'s SOI, press R to release, ] to switch to the lander, legs down (G) and land. Try "Example: Lander Carrier".',
+    check: (s) => !!s.dropLanded, stars: [['Released lander lands on Lumo', (s) => !!s.dropLanded], ['Thrifty: cost 3,600 cr or less', (s, c) => c <= 3600], ['Feather touch: under 4 m/s', (s) => !!s.dropLanded && s.lumoSpeed < 4]] },
+  { id: 'constellation', name: 'Constellation', world: true, goal: 'Have 3 satellites orbiting Numeria in your world (Pe above 30 km).', budget: 3500, hint: 'This mission uses your saved world: launch a satellite, choose "Leave in space", launch another... One rocket can also carry two satellites on two Payload Separators!',
+    check: (s, w) => satsInOrbit(w) >= 3, stars: [['3 satellites in orbit', (s, c, w) => satsInOrbit(w) >= 3], ['Thrifty launch: 2,800 cr or less', (s, c) => c <= 2800], ['Big network: 4 or more satellites', (s, c, w) => satsInOrbit(w) >= 4]] },
+  { id: 'sandbox', name: 'Sandbox World', world: true, goal: 'Your own space program: satellites, landers, rockets. They stay in the world!', budget: Infinity, hint: 'After a flight choose "Leave in space". Launch again and your old craft are still up there. See them all in Tracking.', check: () => false, stars: [] },
   { id: 'free', name: 'Free Flight', goal: 'No goal, no budget. Build anything!', budget: Infinity, hint: 'Try a huge rocket. Visit Lumo, or escape to orbit Ember!', check: () => false, stars: [] },
 ];
 let mission = MISSIONS[0];
+const inOrbit = (v) => { const B = BODIES[v.body], o = v.orbit || orbitOf(v.px, v.py, v.vx, v.vy, B); return !v.onGround && v.state === 'flying' && o.bound && o.pe > (B.atm || 3000) && o.ra < B.soi; };
+// satellites orbiting Numeria (optionally only those from one launch)
+function satsInOrbit(w, s) { return w ? w.vessels.filter((v) => v.vtype === 'Satellite' && v.body === 'numeria' && (!s || v.stats === s) && inOrbit(v)).length : 0; }
 
 // ---------- screens & overlays
 let screen = 'title';
@@ -56,6 +68,7 @@ function show(name) {
   document.querySelectorAll('.screen').forEach((el) => el.classList.toggle('active', el.id === 'scr-' + name));
   if (name === 'missions') renderMissions();
   if (name === 'hangar') updateStats();
+  if (name === 'tracking') renderTracking();
 }
 const overlay = (id, on) => $('#ov-' + id).classList.toggle('show', on);
 const overlayOpen = (id) => $('#ov-' + id).classList.contains('show');
@@ -103,6 +116,8 @@ document.querySelector('.hv-top').addEventListener('click', (e) => {
   if (act === 'ex2') builder.setStack(EX_ORBITER);
   if (act === 'ex3') builder.setStack(EX_MOON);
   if (act === 'ex4') builder.setStack(EX_HEAVY);
+  if (act === 'ex5') builder.setStack(EX_SAT);
+  if (act === 'ex6') builder.setStack(EX_LANDER);
   if (act === 'clear') builder.setStack([]);
   if (act === 'help') overlay('help', true);
 });
@@ -172,21 +187,46 @@ $('#b-launch').addEventListener('click', launch);
 
 // ---------- flight
 let flight = null, paused = false, endTimer = 0, missionDone = false, launchStack = null, launchCost = 0, resultsShown = false;
+let world = null, launchStats = null, worldSnap = null, saveT = 0;
+// ---------- persistent world (localStorage)
+const loadWorld = () => { const w = World.load(store.get('world', null)); w.persistent = true; return w; };
+function saveWorld() { if (world && world.persistent) store.set('world', world.serialize()); }
+function leaveFlight(to) { saveWorld(); worldSnap = null; $('#toasts').innerHTML = ''; overlay('pause', false); overlay('results', false); paused = false; flight = null; world = null; show(to); }
 const view = { map: false, zoom: 1, mapZoom: 1 };
 function launch() {
   const S = updateStats(); if ($('#b-launch').disabled) return;
-  launchStack = builder.stack.map((p) => ({ ...p })); launchCost = S.cost;
+  launchStack = builder.stack.map((p) => ({ ...p })); launchCost = S.cost; worldSnap = null;
   startFlight();
 }
 function startFlight() {
-  flight = new Flight(launchStack);
+  if (mission.world) { world = worldSnap ? World.load(worldSnap) : loadWorld(); world.persistent = true; worldSnap = world.serialize(); }
+  else world = new World();
+  flight = world.launch(launchStack, { mission: mission.id });
+  launchStats = flight.stats;
+  enterFlight();
+  toast(world.vessels.length > 1 ? `Launching ${flight.name}. Your other ${world.controllable.length - 1} craft are still out there (] to switch).` : 'Press STAGE (Space) to start the engines!');
+}
+function enterFlight() {
   paused = false; endTimer = 0; missionDone = false; resultsShown = false;
   view.map = false; view.zoom = 1; view.mapZoom = 1;
   overlay('pause', false); overlay('results', false);
   show('flight');
   $('#h-goal').textContent = mission.goal;
-  syncButtons();
-  toast('Press STAGE (Space) to start the engines!');
+  $('#ov-pause [data-act="leave"]').hidden = !(world && world.persistent);
+  vesKey = ''; syncButtons();
+}
+function switchTo(v) {
+  if (!world || !v || v === flight) return;
+  world.setActive(v); flight = v; endTimer = 0;
+  if (resultsShown) { resultsShown = false; overlay('results', false); }
+  vesKey = ''; syncButtons();
+  toast(`Now flying ${v.name} (${v.vtype}).`, 'good');
+}
+function cycleVessel(d) {
+  if (!world) return;
+  const list = world.controllable;
+  if (list.length < 2) { toast('No other craft to switch to. Release a payload (R) or drop a stage with a probe core.'); return; }
+  const i = list.indexOf(flight); switchTo(list[(i + d + list.length) % list.length]);
 }
 function syncButtons() {
   if (!flight) return;
@@ -199,6 +239,8 @@ function syncButtons() {
   $('#b-legs').classList.toggle('on', flight.legsDown);
   $('#b-legs').disabled = !flight.legs;
   $('#b-fair').disabled = !flight.hasFairing;
+  $('#b-rel').disabled = !flight.allParts.some((p) => p.type === 'payDec');
+  $('#b-ves').classList.toggle('on', !$('#hud-v').hidden);
 }
 const MAPZ = [0.00005, 40];
 const HOLDS = ['free', 'up', 'pro', 'retro'];
@@ -207,6 +249,8 @@ const act = {
   legs: () => { flight && flight.toggleLegs(); syncButtons(); },
   chute: () => { flight && flight.armChute(); syncButtons(); },
   fairing: () => { flight && flight.jettisonFairing(); syncButtons(); },
+  release: () => { flight && flight.release(); syncButtons(); },
+  vessels: () => { $('#hud-v').hidden = !$('#hud-v').hidden; vesKey = ''; syncButtons(); },
   map: () => { view.map = !view.map; syncButtons(); },
   hold: () => { if (!flight) return; flight.hold = HOLDS[(HOLDS.indexOf(flight.hold) + 1) % HOLDS.length]; syncButtons(); },
   warpUp: () => { if (flight) { flight.warpIdx = Math.min(WARPS.length - 1, flight.warpIdx + 1); syncButtons(); } },
@@ -219,6 +263,20 @@ $('#b-stage').addEventListener('click', act.stage);
 $('#b-chute').addEventListener('click', act.chute);
 $('#b-legs').addEventListener('click', act.legs);
 $('#b-fair').addEventListener('click', act.fairing);
+$('#b-rel').addEventListener('click', act.release);
+$('#b-ves').addEventListener('click', act.vessels);
+$('#b-vprev').addEventListener('click', () => cycleVessel(-1));
+$('#b-vnext').addEventListener('click', () => cycleVessel(1));
+$('#v-list').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b || !world) return;
+  const v = world.vessels.find((x) => x.id === +b.dataset.id); if (!v) return;
+  if (b.dataset.k === 'ren') { renameVessel(v); vesKey = ''; return; }
+  switchTo(v);
+});
+function renameVessel(v) {
+  const n = window.prompt(`New name for ${v.name}:`, v.name);
+  if (n != null && world.rename(v, n)) { toast(`Renamed to ${v.name}.`); saveWorld(); }
+}
 $('#b-map').addEventListener('click', act.map);
 $('#b-hold').addEventListener('click', act.hold);
 $('#b-warp').addEventListener('click', (e) => { if (flight && flight.warpIdx >= WARPS.length - 1) { flight.warpIdx = 0; syncButtons(); } else act.warpUp(); });
@@ -243,7 +301,8 @@ $('#ov-pause').addEventListener('click', (e) => {
   if (k === 'resume') act.pause();
   if (k === 'finish') { overlay('pause', false); paused = false; showResults(); }
   if (k === 'relaunch') startFlight();
-  if (k === 'tohangar') { overlay('pause', false); paused = false; flight = null; show('hangar'); }
+  if (k === 'tohangar') leaveFlight('hangar');
+  if (k === 'leave') { leaveFlight('tracking'); toast('Your craft stay in space. Launch another from the hangar!', 'good'); }
   if (k === 'help') overlay('help', true);
 });
 $('#ov-help').addEventListener('click', (e) => { const a = e.target.closest('button'); if (a && a.dataset.act === 'closehelp') overlay('help', false); });
@@ -283,6 +342,10 @@ window.addEventListener('keydown', (e) => {
     case 'KeyP': act.chute(); break;
     case 'KeyG': act.legs(); break;
     case 'KeyF': act.fairing(); break;
+    case 'KeyR': act.release(); break;
+    case 'KeyV': act.vessels(); break;
+    case 'BracketLeft': cycleVessel(-1); break;
+    case 'BracketRight': cycleVessel(1); break;
     case 'KeyH': act.hold(); break;
     case 'Comma': act.warpDown(); break;
     case 'Period': act.warpUp(); break;
@@ -317,6 +380,8 @@ function updateHud(dt) {
   hudT += dt; if (hudT < 0.08) return; hudT = 0;
   const h = flight.hud();
   set('h-body', h.body);
+  set('h-craft', `${VESSEL_ICON[flight.vtype] || ''} ${flight.name}${flight.powered ? ' ⚡' : ''}`);
+  if (!$('#hud-v').hidden) renderVesselList();
   set('h-alt', fmtKm(Math.max(0, h.alt)));
   set('h-spd', ms(h.speed));
   set('h-vs', `${h.vVert >= 0 ? '▲' : '▼'} ${ms(Math.abs(h.vVert))}`);
@@ -338,7 +403,11 @@ function updateHud(dt) {
   if (document.activeElement !== thr) thr.value = Math.round(flight.throttle * 100);
   set('thr-lbl', `${Math.round(flight.throttle * 100)}%`);
   let gs;
-  if (mission.id === 'free') gs = `Free flight · orbiting ${h.body}`;
+  if (mission.id === 'sandbox') gs = `Sandbox world · ${world ? world.controllable.length : 1} craft · orbiting ${h.body}`;
+  else if (mission.id === 'constellation') gs = `Satellites in orbit: <span class="ok">${satsInOrbit(world)}</span> / 3${missionDone ? ' ✓' : ''}`;
+  else if (mission.id === 'sat' && !missionDone) gs = launchStats.released ? 'Satellite released! Its Pe must be above 30 km.' : `Pe ${grounded ? '–' : h.pe < 0 ? 'underground' : fmtKm(h.pe)} · reach orbit, F (fairing), then R (release)`;
+  else if (mission.id === 'landerdrop' && !missionDone) gs = launchStats.released ? `Lander released: switch to it with ] and land on Lumo (G = legs).` : `Orbiting ${h.body}${flight.encounter ? ' · <span class="ok">Encounter: Lumo</span>' : ''} · release the lander (R) near Lumo`;
+  else if (mission.id === 'free') gs = `Free flight · orbiting ${h.body}`;
   else if (missionDone && mission.id === 'moonland') gs = '<span class="ok">✓ Landed on Lumo!</span> Pause → End flight for results, or try flying home.';
   else if (missionDone) gs = '<span class="ok">✓ Mission complete!</span> Keep flying, or land softly for a bonus star.';
   else if (mission.id === 'flyby') gs = flight.encounter ? '<span class="ok">Encounter: Lumo</span> on your path. Warp ahead!' : `Orbiting ${h.body}. Map (M) shows SOIs.`;
@@ -354,9 +423,10 @@ function showResults() {
   if (resultsShown || !flight) return;
   resultsShown = true;
   $('#toasts').innerHTML = '';
-  const s = flight.stats, m = mission;
-  const got = m.stars.map(([label, test]) => [label, !!test(s, launchCost)]);
-  const goal = m.check(s);
+  const s = launchStats || flight.stats, m = mission;
+  const got = m.stars.map(([label, test]) => [label, !!test(s, launchCost, world)]);
+  const goal = m.check(s, world);
+  const others = world ? world.controllable.filter((v) => v !== flight) : [];
   const n = goal ? got.filter((g) => g[1]).length : 0;
   if (goal) { const best = store.get('stars', {}); if ((best[m.id] || 0) < n) { best[m.id] = n; store.set('stars', best); } }
   let title = flight.state === 'crashed' ? 'Crunch!' : flight.state === 'landed' ? (flight.stats.splash ? 'Splashdown!' : 'Touchdown!') : 'Flight over';
@@ -374,17 +444,21 @@ function showResults() {
       <span>Orbit reached</span><b>${s.orbit ? 'Yes!' : 'Not yet'}</b>
       <span>Visited</span><b>${['numeria', 'lumo', 'ember'].filter((k) => s.soi[k]).map((k) => BODIES[k].name).join(', ')}${s.landedLumo ? ' (landed on Lumo)' : ''}</b>
     </div>
-    <div class="row-btns"><button class="big primary" data-r="again">Fly again</button><button class="big" data-r="hangar">Change rocket</button><button class="big" data-r="missions">Missions</button></div>`;
+    ${others.length ? `<div class="row-btns">${others.slice(0, 4).map((v) => `<button data-r="sw" data-id="${v.id}">Fly ${VESSEL_ICON[v.vtype] || ''} ${esc(v.name)}</button>`).join('')}</div>` : ''}
+    <div class="row-btns">${world && world.persistent ? '<button class="big primary" data-r="leave">Leave in space</button>' : ''}<button class="big ${world && world.persistent ? '' : 'primary'}" data-r="again">Fly again</button><button class="big" data-r="hangar">Change rocket</button><button class="big" data-r="missions">Missions</button></div>`;
   dlg.querySelector('h2').textContent = title;
   dlg.querySelector('.why').textContent = (flight.endReason || 'You ended the flight.') + (goal ? '' : m.id !== 'free' ? ` Goal: ${m.goal}` : '');
   overlay('results', true);
 }
 $('#ov-results').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
-  const r = b.dataset.r; overlay('results', false);
+  const r = b.dataset.r;
+  if (r === 'sw') { switchTo(world.vessels.find((v) => v.id === +b.dataset.id)); return; }
+  overlay('results', false);
   if (r === 'again') startFlight();
-  if (r === 'hangar') { flight = null; show('hangar'); }
-  if (r === 'missions') { flight = null; show('missions'); }
+  if (r === 'leave') leaveFlight('tracking');
+  if (r === 'hangar') leaveFlight('hangar');
+  if (r === 'missions') leaveFlight('missions');
 });
 
 // ---------- title background
@@ -416,9 +490,11 @@ function frame(now) {
   if (screen === 'flight' && flight) {
     if (!paused && !resultsShown) {
       flightInput(dt);
-      flight.update(dt);
-      for (const ev of flight.events.splice(0)) toast(ev.msg, ev.kind);
-      if (!missionDone && mission.check(flight.stats)) { missionDone = true; toast(`★ Mission complete: ${mission.name}!`, 'good'); }
+      world.update(dt);
+      if (world.active && world.active !== flight) { flight = world.active; syncButtons(); }
+      for (const ev of [...flight.events.splice(0), ...world.events.splice(0)]) toast(ev.msg, ev.kind);
+      if (world.persistent && (saveT += dt) > 5) { saveT = 0; saveWorld(); }
+      if (!missionDone && mission.check(launchStats, world)) { missionDone = true; toast(`★ Mission complete: ${mission.name}!`, 'good'); }
       if (flight.state !== 'flying') { endTimer += dt; if (endTimer > 2.2) showResults(); }
     }
     flight.render(ctx, cw, ch, view);
@@ -437,8 +513,44 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 }
 // test hook for automated screenshots
 window.__fcgm = {
-  get flight() { return flight; }, builder, view, MISSIONS, BODIES, openHangar, launch, show, EX_MOON, EX_HEAVY, VERSION, syncButtons,
+  get flight() { return flight; }, get world() { return world; }, cycleVessel, switchTo, saveWorld, loadWorld, EX_SAT, EX_LANDER, builder, view, MISSIONS, BODIES, openHangar, launch, show, EX_MOON, EX_HEAVY, VERSION, syncButtons,
   teleport(o) { if (flight) { flight.debugPlace(o); syncButtons(); } },
   setWarp(i) { if (flight) { flight.warpIdx = i; syncButtons(); } },
   get missionDone() { return missionDone; }, showResults: () => showResults(), pause: (p) => { paused = p; },
 };
+
+// ---------- vessel list (flight HUD) & Tracking screen
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let vesKey = '';
+function renderVesselList() {
+  if (!world) return;
+  const rows = world.summary();
+  const key = rows.map((r) => `${r.id}${r.name}${r.status}${r.active}${r.type}`).join('|');
+  if (key === vesKey) return; vesKey = key;
+  $('#v-list').innerHTML = rows.map((r) => `<div class="vrow ${r.active ? 'act' : ''}"><button class="vgo" data-id="${r.id}" ${r.active || r.status === 'Crashed' ? 'disabled' : ''}><span class="vi">${VESSEL_ICON[r.type] || ''}</span><span class="vn">${esc(r.name)}${r.powered ? ' ⚡' : ''}</span><span class="vs">${r.type} · ${r.status === 'Orbiting' ? 'orbiting ' + r.body : r.status}</span></button><button class="vren" data-k="ren" data-id="${r.id}" title="Rename">✎</button></div>`).join('') || '<div class="vs">No craft</div>';
+}
+function renderTracking() {
+  const w = world && world.persistent ? world : loadWorld();
+  const rows = w.summary();
+  const h = Math.floor(w.t / 3600), mnt = Math.floor((w.t % 3600) / 60);
+  $('#trk-time').textContent = `World time ${h} h ${mnt} min · ${rows.length} craft`;
+  $('#trk-list').innerHTML = rows.length ? `<table class="trk"><tr><th></th><th>Name</th><th>Type</th><th>Near</th><th>Ap</th><th>Pe</th><th>Status</th><th></th></tr>${rows.map((r) => `<tr><td class="vi">${VESSEL_ICON[r.type] || ''}</td><td><b>${esc(r.name)}</b>${r.powered ? ' ⚡' : ''}</td><td>${r.type}</td><td>${r.body}</td><td>${r.ap == null ? '–' : fmtKm(r.ap)}</td><td>${r.pe == null ? '–' : r.pe < 0 ? 'underground' : fmtKm(r.pe)}</td><td>${r.status}</td><td class="tb"><button data-t="fly" data-id="${r.id}" class="primary" ${r.type === 'Debris' ? 'disabled' : ''}>Fly</button><button data-t="ren" data-id="${r.id}" title="Rename">✎</button><button data-t="del" data-id="${r.id}" title="Remove from the world">✕</button></td></tr>`).join('')}</table>` : '<p class="empty">No craft in your world yet. Pick <b>Sandbox World</b> or <b>Constellation</b>, launch, and choose <b>Leave in space</b>.</p>';
+}
+$('#scr-tracking').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.t) {
+    const w = loadWorld(); const v = w.vessels.find((x) => x.id === +b.dataset.id); if (!v) return;
+    if (b.dataset.t === 'ren') { const n = window.prompt(`New name for ${v.name}:`, v.name); if (n != null && w.rename(v, n)) store.set('world', w.serialize()); renderTracking(); }
+    if (b.dataset.t === 'del') { if (window.confirm(`Remove ${v.name} from the world?`)) { w.remove(v); store.set('world', w.serialize()); renderTracking(); } }
+    if (b.dataset.t === 'fly') {
+      world = w; mission = MISSIONS.find((m) => m.id === 'sandbox'); launchCost = 0;
+      world.setActive(v); flight = v; launchStats = v.stats; worldSnap = null;
+      enterFlight(); toast(`Now flying ${v.name}.`, 'good');
+    }
+    return;
+  }
+  const a = b.dataset.a;
+  if (a === 'reset' && window.confirm('Reset the world? Every saved craft will be removed.')) { store.set('world', null); worldSnap = null; renderTracking(); toast('World reset: empty space again.'); }
+  if (a === 'launch') { worldSnap = null; openHangar(MISSIONS.find((m) => m.id === 'sandbox')); }
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden && screen === 'flight') saveWorld(); });

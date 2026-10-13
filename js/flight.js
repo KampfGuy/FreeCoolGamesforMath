@@ -1,6 +1,6 @@
 // Flight simulation (2D patched-conic orbital mechanics: star Ember, planet Numeria, moon Lumo) + rendering.
-import { PARTS, W, TAU, G0, drawStack, COL, legFootDrop, boosterParts, SIDE_DX, FAIR_LEN, drawFairingShell, fairShellMass } from './parts.js?v=boost1';
-import { PLANET, BODIES, density, splitSections, sectionInfo, orbitOf, circleSpeed, stiffLimit, relState, localState, convertFrame, soiCheck, landingResult, sideBoosters, boosterWet, boosterInfo, dragFactor, planDv, srbFuel } from './physics.js?v=boost1';
+import { PARTS, W, TAU, G0, drawStack, COL, legFootDrop, boosterParts, SIDE_DX, FAIR_LEN, drawFairingShell, fairShellMass } from './parts.js?v=fleet1';
+import { PLANET, BODIES, density, splitSections, sectionInfo, orbitOf, circleSpeed, stiffLimit, relState, localState, convertFrame, soiCheck, landingResult, sideBoosters, boosterWet, boosterInfo, dragFactor, planDv, srbFuel, classifyParts } from './physics.js?v=fleet1';
 
 export const WARPS = [1, 2, 5, 10, 50, 500, 5000];
 const WARP_BURN = 2, WARP_AIR = 3; // max warp index while burning / on the ground, and inside the air
@@ -21,16 +21,17 @@ export const STARS = Array.from({ length: 240 }, (_, i) => ({ x: hash(i + 101), 
 export const CRATERS = Array.from({ length: 70 }, (_, i) => ({ phi: hash(i + 501) * TAU, r: 400 + Math.pow(hash(i + 601), 2.2) * 9000 }));
 const T_LOCAL = (r, b) => TAU * Math.sqrt((r * r * r) / b.mu);
 
+const SAVE_KEYS = ['id', 'name', 'vtype', 'autoName', 'body', 'px', 'py', 'vx', 'vy', 'heading', 'onGround', 'leftGround', 'state', 'legsDown', 'chuteArmed', 'chute', 't', 't0', 'stats', 'released', 'mission', 'endReason'];
 export class Flight {
-  constructor(stack) {
-    const copy = stack.map((p) => {
+  constructor(stack, o = {}) {
+    const copy = (stack || []).map((p) => {
       const q = { ...p };
       if (PARTS[q.type].srb) q.sf = PARTS[q.type].sfuel;
       if (q.side) { const bi = boosterInfo(q.side); q.side = { ...q.side, fuel: bi.fuel, sf: bi.sfuel }; }
       if (q.type === 'fairing') q.jett = false;
       return q;
     });
-    this.sections = splitSections(copy).map((parts) => { const i = sectionInfo(parts); return { parts, fuel: i.fuel, fuelMax: i.fuel, sfMax: i.sfuel }; });
+    this.sections = o.sections || splitSections(copy).map((parts) => { const i = sectionInfo(parts); return { parts, fuel: i.fuel, fuelMax: i.fuel, sfMax: i.sfuel }; });
     this.boostersLit = false; this.coreFlame = 0; this.sideFlame = 0;
     this.body = 'numeria';
     this.px = 0; this.py = PLANET.R; this.vx = 0; this.vy = 0;
@@ -39,7 +40,8 @@ export class Flight {
     this.chuteArmed = false; this.chute = 0;
     this.legsDown = false; this.legAnim = 0;
     this.onGround = true; this.leftGround = false;
-    this.warpIdx = 0; this.t = 0; this.isp = 0;
+    this.warpIdx = 0; this.t = o.t || 0; this.t0 = this.t; this.isp = 0;
+    this.world = null; this.spawned = []; this.name = ''; this.vtype = ''; this.released = false;
     this.state = 'flying'; this.endReason = '';
     this.stats = { usedBoosters: false, fairingJett: false, maxAlt: 0, maxSpeed: 0, maxG: 0, orbit: false, landedSafe: false, splash: false, dvUsed: 0, space: false, soi: { numeria: true }, landedLumo: false, lumoSpeed: 0, landedLumoBeforeHome: false };
     this.debris = []; this.particles = []; this.events = [];
@@ -52,6 +54,63 @@ export class Flight {
   get B() { return BODIES[this.body]; }
   emit(msg, kind = 'info') { this.events.push({ msg, kind }); }
   once(key, msg, kind) { if (!this.flags[key]) { this.flags[key] = true; this.emit(msg, kind); } }
+  // Vessel type tag from the parts (Rocket, Satellite, Lander, Probe, Station, Capsule, Debris).
+  classify() { return classifyParts(this.allParts, this.boosters.length); }
+  get powered() { return this.allParts.some((p) => p.solar); }
+  // A new craft made from some of our sections, placed `offset` m along our heading, pushed by `dv` m/s.
+  spawnChild(sections, offset, dv) {
+    const hx = Math.cos(this.heading), hy = Math.sin(this.heading);
+    const c = new Flight(null, { sections, t: this.t });
+    Object.assign(c, { body: this.body, px: this.px + hx * offset, py: this.py + hy * offset, vx: this.vx + hx * dv, vy: this.vy + hy * dv, heading: this.heading, onGround: false, leftGround: true, stats: this.stats, released: true });
+    c.recalc();
+    c.vtype = c.classify();
+    if (c.vtype === 'Debris') c.omega = (Math.random() - 0.5) * 0.5;
+    c.orbit = orbitOf(c.px, c.py, c.vx, c.vy, c.B);
+    this.spawned.push(c);
+    return c;
+  }
+  // Payload Separator: everything above the top-most one flies off as its own craft.
+  release() {
+    if (this.state !== 'flying') return false;
+    const all = this.allParts, i = all.findIndex((p) => p.type === 'payDec');
+    if (i < 0) { this.emit('No Payload Separator on this craft.', 'warn'); return false; }
+    if (this.hasFairing && this.fairingIdx > i) { this.emit('Open the fairing first (F): the payload is still inside.', 'warn'); return false; }
+    const upper = [], lower = []; let k = 0;
+    for (const s of this.sections) {
+      const n = s.parts.length;
+      if (k + n <= i) upper.push(s);
+      else if (k > i) lower.push(s);
+      else {
+        const j = i - k, up = s.parts.slice(0, j), lo = s.parts.slice(j);
+        const cap = (ps) => ps.reduce((a, p) => a + (PARTS[p.type].fuel || 0), 0), cu = cap(up), cl = cap(lo), tot = cu + cl;
+        const fu = tot ? (s.fuel * cu) / tot : 0;
+        if (up.length) upper.push({ parts: up, fuel: fu, fuelMax: tot ? (s.fuelMax * cu) / tot : 0, sfMax: sectionInfo(up).sfuel });
+        lower.push({ parts: lo, fuel: s.fuel - fu, fuelMax: tot ? (s.fuelMax * cl) / tot : 0, sfMax: sectionInfo(lo).sfuel });
+      }
+      k += n;
+    }
+    if (!upper.length) { this.emit('Nothing above the Payload Separator.', 'warn'); return false; }
+    const ui = sectionInfo(upper.flatMap((s) => s.parts)), li = sectionInfo(lower.flatMap((s) => s.parts));
+    const hx = Math.cos(this.heading), hy = Math.sin(this.heading);
+    let payload;
+    if (li.command || !ui.command) {
+      // the carrier keeps control; the payload drifts away forward
+      this.sections = lower; payload = this.spawnChild(upper, li.height, 0.8);
+      this.vx -= hx * 0.3; this.vy -= hy * 0.3;
+    } else {
+      // the carrier has no brain: control moves to the payload, the carrier becomes debris
+      this.sections = upper; payload = this;
+      this.spawnChild(lower, 0, -0.5);
+      this.px += hx * li.height; this.py += hy * li.height; this.vx += hx * 0.3; this.vy += hy * 0.3;
+    }
+    this.recalc();
+    this.ignited = this.ignited && this.activeInfo.engines > 0 && payload !== this;
+    if (payload === this) { this.ignited = false; this.throttle = 0; }
+    this.stats.released = true; this.flags.empty = false;
+    const pt = classifyParts(upper.flatMap((s) => s.parts));
+    this.emit(`Payload released! ${pt === 'Debris' ? 'It has no probe core, so it is just debris.' : `New ${pt.toLowerCase()} in the world.${payload === this ? '' : ' Press ] to switch to it.'}`}`, 'good');
+    return payload;
+  }
   recalc() {
     let dry = 0, fins = 0, struts = 0, legs = 0, n = 0, height = 0, capsule = false, chute = false, te = 0;
     for (const s of this.sections) {
@@ -142,7 +201,8 @@ export class Flight {
       const dropped = this.sections.pop();
       const di = sectionInfo(dropped.parts);
       const hx = Math.cos(this.heading), hy = Math.sin(this.heading);
-      this.debris.push({ parts: dropped.parts, body: this.body, px: this.px, py: this.py, vx: this.vx - hx * 3, vy: this.vy - hy * 3, heading: this.heading, omega: (Math.random() - 0.5) * 0.5, mass: di.dry + dropped.fuel, t: 0 });
+      if (this.world || di.command) { const c = this.spawnChild([dropped], 0, -3); if (di.command) this.emit(`The dropped stage has a ${di.capsule ? 'capsule' : 'probe core'}: it is now its own ${c.vtype.toLowerCase()}. Press ] to fly it.`, 'good'); }
+      else this.debris.push({ parts: dropped.parts, body: this.body, px: this.px, py: this.py, vx: this.vx - hx * 3, vy: this.vy - hy * 3, heading: this.heading, omega: (Math.random() - 0.5) * 0.5, mass: di.dry + dropped.fuel, t: 0 });
       this.px += hx * di.height; this.py += hy * di.height;
       this.vx += hx * 1; this.vy += hy * 1;
       this.recalc();
@@ -153,6 +213,7 @@ export class Flight {
       return;
     }
     if (this.hasFairing) { this.jettisonFairing(); return; }
+    if (this.allParts.some((p) => p.type === 'payDec')) { this.release(); return; }
     if (this.hasChute && !this.chuteArmed) { this.armChute(); return; }
     this.emit('Nothing left to stage.');
   }
@@ -345,6 +406,7 @@ export class Flight {
       this.throttle = 0; this.thrustNow = 0;
       if (this.hasCapsule) {
         if (!this.stats.landedLumo) this.emit(`Touchdown on ${this.B.name} at ${sp.toFixed(1)} m/s!${how} You can take off again.`, 'good');
+        if (this.released && this.legs) this.stats.dropLanded = true;
         this.stats.landedLumo = true; this.stats.lumoSpeed = this.stats.lumoSpeed ? Math.min(this.stats.lumoSpeed, sp) : sp;
       }
       return;
@@ -388,6 +450,21 @@ export class Flight {
     this.particles = this.particles.filter((p) => p.life < p.max);
   }
 
+  // ---- save / load (world persistence)
+  toSave() {
+    const o = { sections: this.sections };
+    for (const k of SAVE_KEYS) o[k] = this[k];
+    return JSON.parse(JSON.stringify(o));
+  }
+  static fromSave(o) {
+    const f = new Flight(null, { sections: o.sections, t: o.t });
+    for (const k of SAVE_KEYS) if (o[k] !== undefined) f[k] = o[k];
+    f.stats = Object.assign(f.stats, o.stats || {});
+    f.recalc(); f.legAnim = f.legsDown ? 1 : 0; f.chute = f.chuteArmed ? f.chute : 0;
+    if (f.state === 'flying' && !f.onGround) f.leftGround = true;
+    f.orbit = orbitOf(f.px, f.py, f.vx, f.vy, f.B);
+    return f;
+  }
   // Debug / test hook: put the rocket somewhere. opts: { body, alt, circular, angle, vx, vy, legs }
   debugPlace(o = {}) {
     if (o.body && o.body !== this.body) this.body = o.body;
@@ -435,7 +512,7 @@ export class Flight {
       body: b.name, bodyKey: b.key, soi: b.soi, leaves,
       alt: r - b.R - (this.onGround ? this.footOff : 0), speed: this.speed, vVert, vSide, cs, ap: o.ap, pe: o.pe, e: o.e, stageDv, totalDv: total,
       twr: avail / (m * gLocal), g: this.gNow, fuelFrac: fuelMax ? fuelNow / fuelMax : 0, srb: srbTxt, boosters: this.boosters.length * 2, fairing: this.hasFairing,
-      sections: this.sections.length, t: this.t, warp: WARPS[this.warpIdx], mass: m,
+      sections: this.sections.length, t: this.t - this.t0, warp: WARPS[this.warpIdx], mass: m,
     };
   }
 
@@ -510,6 +587,16 @@ export class Flight {
       else drawStack(ctx, d.parts, { lw: 1.3 / s, legs: d.broken ? 1 : 0, flame: d.burn && d.t < 1.5 ? 1 - d.t / 1.5 : 0, t: this.t });
       ctx.restore();
     }
+    const labels = [];
+    if (this.world) for (const v of this.world.vessels) {
+      if (v === this || v.body !== this.body || v.state === 'crashed') continue;
+      const dx = v.px - cx, dy = v.py - cy;
+      if (Math.hypot(dx, dy) > viewR + 60) continue; // far away: skip drawing
+      ctx.save(); ctx.translate(dx, dy); ctx.rotate(v.heading - Math.PI / 2); ctx.scale(1, -1);
+      drawStack(ctx, v.allParts, { lw: 1.3 / s, legs: v.legAnim, chute: v.chute, t: this.t });
+      ctx.restore();
+      if (v.vtype !== 'Debris') labels.push([dx + Math.cos(v.heading) * (v.height + 2), dy + Math.sin(v.heading) * (v.height + 2), v.name]);
+    }
     if (this.state !== 'crashed') {
       let bend = 0;
       if (this.wobbly && this.gNow > 1.5) bend = 0.03 * Math.min(1, (this.gNow - 1.5) / 3) * Math.sin(this.t * 9);
@@ -518,6 +605,12 @@ export class Flight {
       ctx.restore();
     }
     ctx.restore();
+    const ca = Math.cos(a), sn = Math.sin(a);
+    ctx.font = '700 12px system-ui, sans-serif'; ctx.textAlign = 'center';
+    for (const [lx, ly, name] of labels) {
+      const X = w / 2 + (lx * ca - ly * sn) * s, Y = h / 2 - (lx * sn + ly * ca) * s;
+      ctx.fillStyle = '#000a'; ctx.fillText(name, X + 1, Y - 5); ctx.fillStyle = '#c9f7ff'; ctx.fillText(name, X, Y - 6);
+    }
     if (this.height * s < 14 && this.state !== 'crashed') {
       const sa2 = this.heading + a;
       ctx.save(); ctx.translate(w / 2, h / 2); ctx.rotate(-sa2);
@@ -721,11 +814,32 @@ export class Flight {
       if (P.exit && !P.enc) mark(P.exit.x, P.exit.y, `Leaves ${b.name} SOI`, '#5dffb0');
     }
     for (const d of this.debris) { if (d.body !== this.body) continue; ctx.fillStyle = '#8890a8'; ctx.fillRect(X(d.px) - 2, Y(d.py) - 2, 4, 4); }
+    if (this.world) {
+      const vl = [];
+      for (const v of this.world.vessels) {
+        if (v === this || v.state === 'crashed') continue;
+        const off = v.body === this.body ? { x: 0, y: 0 } : relState(v.body, this.body, t);
+        const x = off.x + v.px, y = off.y + v.py, VB = BODIES[v.body];
+        if (v.vtype !== 'Debris' && !v.onGround) {
+          const vo = v.orbit || orbitOf(v.px, v.py, v.vx, v.vy, VB);
+          drawConic(ctx, vo, VB, (px, py) => [X(off.x + px), Y(off.y + py)], VESSEL_COL[v.vtype] || '#fff');
+        }
+        if (X(x) < -20 || X(x) > w + 20 || Y(y) < -20 || Y(y) > h + 20) continue;
+        vl.push([v, X(x), Y(y)]);
+      }
+      for (const [v, sx, sy] of vl) {
+        drawVesselIcon(ctx, v.vtype, sx, sy, v.vtype === 'Debris' ? 0.6 : 1);
+        if (v.vtype === 'Debris') continue;
+        ctx.font = '700 12px system-ui, sans-serif'; ctx.textAlign = 'left';
+        ctx.fillStyle = '#000a'; ctx.fillText(v.name, sx + 10, sy + 5); ctx.fillStyle = VESSEL_COL[v.vtype] || '#fff'; ctx.fillText(v.name, sx + 9, sy + 4);
+      }
+    }
     // rocket marker
     ctx.save(); ctx.translate(X(this.px), Y(this.py)); ctx.rotate(-this.heading);
     ctx.beginPath(); ctx.moveTo(11, 0); ctx.lineTo(-7, -7); ctx.lineTo(-3, 0); ctx.lineTo(-7, 7); ctx.closePath();
     ctx.fillStyle = COL.orange; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
     ctx.restore();
+    if (this.name) { ctx.font = '800 12px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillStyle = '#000a'; ctx.fillText(this.name + ' (you)', X(this.px) + 13, Y(this.py) - 7); ctx.fillStyle = COL.orange; ctx.fillText(this.name + ' (you)', X(this.px) + 12, Y(this.py) - 8); }
     ctx.font = '600 12px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(220,230,255,0.75)';
     ctx.fillText(`Map: centered on ${b.name}. Scroll or −/+ to zoom out to see Lumo and Ember.`, 12, h - 86);
     this.camA = 0;
@@ -792,4 +906,37 @@ export function drawStars(ctx, w, h, a, alpha) {
     if (sx < 0 || sy < 0 || sx > w || sy > h) continue;
     ctx.fillRect(sx, sy, st.s, st.s);
   }
+}
+
+// ---- other vessels on the map
+export const VESSEL_COL = { Rocket: '#ffb27f', Satellite: '#7fe3ff', Lander: '#ffe07f', Probe: '#c9b6ff', Station: '#9dffb9', Capsule: '#ffc9e0', Debris: '#8890a8' };
+export const VESSEL_ICON = { Rocket: '🚀', Satellite: '🛰️', Lander: '🛬', Probe: '📡', Station: '🏠', Capsule: '🧑‍🚀', Debris: '🔩' };
+// Orbit (conic) drawn faintly; tr maps body-frame coords to screen.
+export function drawConic(ctx, o, B, tr, col) {
+  if (!o || Math.abs(o.h) < 1) return;
+  const maxNu = o.e >= 1 ? Math.acos(Math.max(-1, -1 / o.e)) * 0.97 : Math.PI;
+  ctx.beginPath(); let pen = false;
+  for (let i = 0; i <= 120; i++) {
+    const nu = -maxNu + (2 * maxNu * i) / 120, rr = o.p / (1 + o.e * Math.cos(nu));
+    if (rr <= 0 || rr > B.soi || rr < B.R) { pen = false; continue; }
+    const [sx, sy] = tr(Math.cos(o.argPe + nu) * rr, Math.sin(o.argPe + nu) * rr);
+    if (pen) ctx.lineTo(sx, sy); else { ctx.moveTo(sx, sy); pen = true; }
+  }
+  ctx.save(); ctx.globalAlpha = 0.4; ctx.strokeStyle = col; ctx.lineWidth = 1.3; ctx.setLineDash([2, 3]); ctx.stroke(); ctx.restore();
+}
+// Small vector icon per vessel type (canvas shapes, no images).
+export function drawVesselIcon(ctx, type, x, y, alpha = 1) {
+  ctx.save(); ctx.globalAlpha = alpha; ctx.translate(x, y);
+  const c = VESSEL_COL[type] || '#fff';
+  ctx.fillStyle = c; ctx.strokeStyle = '#0b1236'; ctx.lineWidth = 1.2;
+  if (type === 'Debris') { ctx.fillRect(-2, -2, 4, 4); ctx.restore(); return; }
+  if (type === 'Satellite' || type === 'Station') {
+    ctx.fillRect(-9, -2.5, 6, 5); ctx.fillRect(3, -2.5, 6, 5); ctx.beginPath(); ctx.arc(0, 0, 3.5, 0, TAU); ctx.fill(); ctx.stroke();
+  } else if (type === 'Lander') {
+    ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(5, 2); ctx.lineTo(-5, 2); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = c; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(-4, 2); ctx.lineTo(-7, 7); ctx.moveTo(4, 2); ctx.lineTo(7, 7); ctx.stroke();
+  } else if (type === 'Rocket') {
+    ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(3.5, -2); ctx.lineTo(3.5, 6); ctx.lineTo(-3.5, 6); ctx.lineTo(-3.5, -2); ctx.closePath(); ctx.fill(); ctx.stroke();
+  } else { ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(6, 0); ctx.lineTo(0, 6); ctx.lineTo(-6, 0); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+  ctx.restore();
 }

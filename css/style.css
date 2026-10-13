@@ -133,3 +133,25 @@ table.stg td:first-child, table.stg th:first-child { text-align: left; }
 #st-sel .mg.small, .kv.small { font-size: 12px; color: var(--muted); margin-top: 4px; }
 table.stg tr.sub td:first-child { font-size: 12px; }
 #b-fair:disabled, #b-legs:disabled { opacity: 0.45; }
+/* fleet1: vessels list, tracking screen */
+#hud-v { top: 300px; left: 10px; width: 250px; max-height: calc(100vh - 400px); overflow-y: auto; }
+#hud-v[hidden] { display: none; }
+#hud-v .vh { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; }
+#hud-v .vh button { min-height: 34px; padding: 2px 8px; font-size: 13px; }
+.vrow { display: flex; gap: 4px; margin-bottom: 4px; }
+.vrow .vgo { flex: 1; display: grid; grid-template-columns: 26px 1fr; grid-template-rows: auto auto; text-align: left; padding: 4px 8px; min-height: 44px; column-gap: 4px; }
+.vrow .vgo:disabled { opacity: 1; cursor: default; }
+.vrow.act .vgo { background: #3b4ea0; border-color: var(--warn); }
+.vrow .vi { grid-row: span 2; font-size: 18px; align-self: center; }
+.vrow .vn { font-weight: 800; font-size: 13px; }
+.vrow .vs, #v-list .vs { font-size: 11px; color: var(--muted); }
+.vrow .vren { min-width: 36px; padding: 2px; min-height: 44px; }
+.trk-wrap { position: absolute; top: 84px; left: 20px; right: 20px; bottom: 20px; overflow: auto; padding: 12px 16px; }
+table.trk { width: 100%; border-collapse: collapse; font-size: 15px; }
+table.trk th { color: var(--muted); text-align: left; font-weight: 600; padding: 6px; border-bottom: 1px solid var(--line); }
+table.trk td { padding: 6px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+table.trk td.vi { font-size: 20px; width: 34px; }
+table.trk td.tb { white-space: nowrap; text-align: right; }
+table.trk td.tb button { min-height: 38px; padding: 4px 12px; margin-left: 4px; }
+.trk-wrap .empty { color: var(--muted); font-size: 16px; text-align: center; margin-top: 40px; }
+#b-rel:disabled { opacity: 0.45; }

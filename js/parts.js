@@ -23,11 +23,15 @@ export const PARTS = {
   fins: { name: 'Fins (pair)', cat: 'Structure', radial: true, mass: 0.06, cost: 40, blurb: 'Attach to a part. Keeps you pointed forward in air.' },
   legs: { name: 'Landing Legs', cat: 'Structure', radial: true, mass: 0.05, cost: 60, blurb: 'Attach to the bottom part. Press G to deploy: safe landing up to 12 m/s and 15° tilt.' },
   radDec: { name: 'Side Boosters', cat: 'Structure', radial: true, mass: 0.08, cost: 80, blurb: 'Radial decouplers: attach a PAIR of side boosters to a core part. They fire with Stage 1; the next STAGE drops them. Pick the booster parts when selected.' },
+  payDec: { name: 'Payload Separator', cat: 'Structure', mass: 0.04, cost: 70, h: 0.25, blurb: 'Put it UNDER a payload (satellite or lander). Press R (Release) in flight: everything above it flies off as its own craft.' },
+  antenna: { name: 'Antenna', cat: 'Satellite', antenna: true, mass: 0.02, cost: 60, h: 0.55, blurb: 'Talks to home. Goes on top of a probe core or capsule. Probe + antenna + solar panels = a Satellite.' },
+  battery: { name: 'Battery Pack', cat: 'Satellite', battery: true, mass: 0.08, cost: 70, h: 0.4, blurb: 'Stores power. A good spot to attach solar panels.' },
+  solar: { name: 'Solar Panels (pair)', cat: 'Satellite', radial: true, mass: 0.04, cost: 80, blurb: 'Attach to a battery or tank. Makes power from Ember\'s light: your craft shows ⚡ powered.' },
   struts: { name: 'Struts (pair)', cat: 'Structure', radial: true, mass: 0.02, cost: 25, blurb: 'Attach to a part. Each pair stiffens 4 more parts.' },
 };
-export const PART_ORDER = ['capsule', 'probe', 'chute', 'tankS', 'tankM', 'tankL', 'engS', 'engB', 'engV', 'srbS', 'srbL', 'noseS', 'noseL', 'fairing', 'dec', 'radDec', 'fins', 'struts', 'legs'];
+export const PART_ORDER = ['capsule', 'probe', 'chute', 'tankS', 'tankM', 'tankL', 'engS', 'engB', 'engV', 'srbS', 'srbL', 'noseS', 'noseL', 'fairing', 'dec', 'payDec', 'radDec', 'fins', 'struts', 'legs', 'antenna', 'battery', 'solar'];
 export const isEngine = (t) => !!PARTS[t].thrust;
-export const isRadialTarget = (t) => !PARTS[t].command && !PARTS[t].nose && t !== 'chute' && t !== 'fairing';
+export const isRadialTarget = (t) => !PARTS[t].command && !PARTS[t].nose && !PARTS[t].antenna && t !== 'chute' && t !== 'fairing';
 // radial part type -> key stored on the stack part
 export const radialKey = (t) => (t === 'radDec' ? 'side' : t);
 
@@ -164,6 +168,25 @@ export function drawPart(ctx, type, lw) {
       rrect(ctx, -hw - 0.08, 0, W + 0.16, h, 0.06); ctx.lineWidth = lw; ctx.strokeStyle = COL.line; ctx.stroke();
       break;
     }
+    case 'payDec': {
+      rrect(ctx, -hw + 0.06, 0, W - 0.12, h, 0.05); ctx.fillStyle = COL.teal; ctx.fill();
+      ctx.fillStyle = COL.white; for (let x = -hw + 0.2; x < hw - 0.1; x += 0.28) ctx.fillRect(x, h * 0.3, 0.12, h * 0.4);
+      rrect(ctx, -hw + 0.06, 0, W - 0.12, h, 0.05); ctx.lineWidth = lw; ctx.strokeStyle = COL.line; ctx.stroke();
+      break;
+    }
+    case 'antenna': {
+      ctx.beginPath(); ctx.moveTo(0, h); ctx.lineTo(0, 0.12); ctx.strokeStyle = COL.line; ctx.lineWidth = Math.max(lw, 0.05); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-0.32, 0.22); ctx.quadraticCurveTo(0, 0.42, 0.32, 0.22); ctx.lineTo(0, 0.3); ctx.closePath(); ctx.fillStyle = COL.white; ctx.fill(); ctx.lineWidth = lw; ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0.08, 0.07, 0, TAU); ctx.fillStyle = COL.red; ctx.fill();
+      rrect(ctx, -0.22, h - 0.12, 0.44, 0.12, 0.03); ctx.fillStyle = COL.dark; ctx.fill(); ctx.stroke();
+      break;
+    }
+    case 'battery': {
+      rrect(ctx, -hw, 0, W, h, 0.06); ctx.fillStyle = '#4a5578'; ctx.fill();
+      ctx.fillStyle = COL.yellow; ctx.fillRect(-0.3, h * 0.3, 0.6, h * 0.4); ctx.fillStyle = COL.line; ctx.fillRect(-0.04, h * 0.32, 0.08, h * 0.36); ctx.fillRect(0.1, h * 0.45, 0.12, h * 0.1);
+      rrect(ctx, -hw, 0, W, h, 0.06); ctx.lineWidth = lw; ctx.strokeStyle = COL.line; ctx.stroke();
+      break;
+    }
     case 'dec': {
       ctx.save(); ctx.beginPath(); ctx.rect(-hw, 0, W, h); ctx.clip();
       ctx.fillStyle = COL.yellow; ctx.fillRect(-hw, 0, W, h);
@@ -233,6 +256,19 @@ export function drawFairingShell(ctx, shape, cover, len, lw, half = 0, alpha = 1
   ctx.lineWidth = lw; ctx.strokeStyle = COL.line; ctx.stroke();
   if (!half) { ctx.beginPath(); ctx.moveTo(0, -0.05); ctx.lineTo(0, -fairingTop(shape, cover, len) + 0.1); ctx.setLineDash([lw * 4, lw * 3]); ctx.strokeStyle = 'rgba(27,33,64,0.5)'; ctx.stroke(); ctx.setLineDash([]); }
   ctx.restore();
+}
+// Solar panel wings on each side of a part of height h.
+export function drawSolar(ctx, h, lw) {
+  const hw = W / 2, ph = Math.max(0.5, Math.min(1.4, h * 1.4)), pw = 1.5, y0 = h / 2 - ph / 2;
+  for (const s of [-1, 1]) {
+    ctx.beginPath(); ctx.moveTo(s * hw, h / 2); ctx.lineTo(s * (hw + 0.25), h / 2); ctx.strokeStyle = COL.steel; ctx.lineWidth = 0.08; ctx.stroke();
+    const x0 = s > 0 ? hw + 0.25 : -hw - 0.25 - pw;
+    rrect(ctx, x0, y0, pw, ph, 0.04); ctx.fillStyle = '#2a4fa8'; ctx.fill();
+    ctx.strokeStyle = 'rgba(160,200,255,0.7)'; ctx.lineWidth = lw * 0.7; ctx.beginPath();
+    for (let k = 1; k < 4; k++) { ctx.moveTo(x0 + (pw * k) / 4, y0); ctx.lineTo(x0 + (pw * k) / 4, y0 + ph); }
+    ctx.moveTo(x0, y0 + ph / 2); ctx.lineTo(x0 + pw, y0 + ph / 2); ctx.stroke();
+    rrect(ctx, x0, y0, pw, ph, 0.04); ctx.lineWidth = lw; ctx.strokeStyle = COL.line; ctx.stroke();
+  }
 }
 // Radial decoupler bracket on each side of a core part of height h.
 export function drawRadDec(ctx, h, lw) {
@@ -325,6 +361,7 @@ export function drawStack(ctx, parts, o = {}) {
     if (p.struts) drawStruts(ctx, h, lw);
     if (p.fins) drawFins(ctx, h, lw);
     if (p.legs) drawLegs(ctx, h, lw, o.legs == null ? 1 : o.legs);
+    if (p.solar) drawSolar(ctx, h, lw);
     drawPart(ctx, p.type, lw);
     if (o.highlight === i) {
       rrect(ctx, -W / 2 - 0.2, -0.12, W + 0.4, h + 0.24, 0.18);
@@ -358,12 +395,12 @@ export function makeIcon(type, size = 52) {
     ctx.translate(0, -0.3); drawPart(ctx, 'fairing', lw); drawFairingShell(ctx, 'ogive', 1.6, 2, lw);
     return c;
   }
-  const h = P.radial ? 1.8 : P.h; const wTot = P.radial ? W + 1.5 : W + 0.2;
+  const h = P.radial ? 1.8 : P.h; const wTot = type === 'solar' ? W + 3.6 : P.radial ? W + 1.5 : W + 0.2;
   const s = Math.min((size - 8) / (h + 0.4), (size - 8) / wTot, 26);
   ctx.translate(size / 2, size / 2 - (h * s) / 2); ctx.scale(s, s);
   const lw = 1.2 / s;
   if (P.radial) {
-    if (type === 'fins') drawFins(ctx, h, lw); else if (type === 'legs') drawLegs(ctx, h, lw, 1); else drawStruts(ctx, h, lw);
+    if (type === 'fins') drawFins(ctx, h, lw); else if (type === 'solar') drawSolar(ctx, h, lw); else if (type === 'legs') drawLegs(ctx, h, lw, 1); else drawStruts(ctx, h, lw);
     ctx.globalAlpha = 0.35; tankBody(ctx, h, lw); ctx.globalAlpha = 1;
   } else drawPart(ctx, type, lw);
   return c;
