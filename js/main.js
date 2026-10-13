@@ -1,8 +1,9 @@
 // FreeCoolGamesforMath.com: rocket builder + flight. Screens, input, missions, HUD.
-import { PARTS, W, TAU, drawStack } from './parts.js';
-import { PLANET, BODIES, designSummary, ORBIT_DV } from './physics.js';
-import { Flight, WARPS, fmtKm, drawStars } from './flight.js';
-import { Builder } from './builder.js';
+import { PARTS, W, TAU, drawStack, FAIR_SHAPES, FAIR_LEN, SIDE_BODIES, SIDE_ENGINES, SIDE_NOSES, fairShellMass } from './parts.js?v=boost1';
+export const VERSION = 'boost1';
+import { PLANET, BODIES, designSummary, ORBIT_DV } from './physics.js?v=boost1';
+import { Flight, WARPS, fmtKm, drawStars } from './flight.js?v=boost1';
+import { Builder } from './builder.js?v=boost1';
 
 const $ = (s) => document.querySelector(s);
 const cv = $('#cv'); const ctx = cv.getContext('2d');
@@ -24,6 +25,7 @@ const store = {
 const EX_HOPPER = [{ type: 'chute' }, { type: 'capsule' }, { type: 'tankM' }, { type: 'engS', fins: 1 }];
 const EX_ORBITER = [{ type: 'chute' }, { type: 'capsule' }, { type: 'tankM' }, { type: 'engV' }, { type: 'dec' }, { type: 'tankL', struts: 1 }, { type: 'engB', fins: 1 }];
 const EX_MOON = [{ type: 'chute' }, { type: 'capsule' }, { type: 'tankM' }, { type: 'engV', legs: 1 }, { type: 'dec' }, { type: 'tankL', struts: 1 }, { type: 'engV' }, { type: 'dec' }, { type: 'tankL', struts: 1 }, { type: 'tankL' }, { type: 'engB', fins: 1 }];
+const EX_HEAVY = [{ type: 'probe' }, { type: 'fairing', shape: 'ogive', len: 2 }, { type: 'tankM' }, { type: 'engV' }, { type: 'dec' }, { type: 'tankL', struts: 1, side: { nose: 'noseS', body: 'srbS', eng: '' } }, { type: 'engB', fins: 1 }];
 const MISSIONS = [
   { id: 'hop', name: 'First Hop', goal: 'Fly higher than 5 km (5,000 m).', budget: 1500, hint: 'One tank and one engine is enough. Check that TWR is above 1!',
     check: (s) => s.maxAlt >= 5000, stars: [['Reach 5 km', (s) => s.maxAlt >= 5000], ['Thrifty: cost 1,000 cr or less', (s, c) => c <= 1000], ['Soft landing', (s) => s.landedSafe]] },
@@ -31,7 +33,7 @@ const MISSIONS = [
     check: (s) => s.maxAlt >= 30000, stars: [['Reach 30 km', (s) => s.maxAlt >= 30000], ['Thrifty: cost 1,700 cr or less', (s, c) => c <= 1700], ['Soft landing', (s) => s.landedSafe]] },
   { id: 'orbit', name: 'Make an Orbit', goal: 'Get your low point (Pe) above 30 km.', budget: 4500, hint: 'Go up ~10 km, then tip sideways. Circle speed is about 1,600 m/s.',
     check: (s) => s.orbit, stars: [['Reach orbit', (s) => s.orbit], ['Thrifty: cost 3,000 cr or less', (s, c) => c <= 3000], ['Come home: soft landing', (s) => s.landedSafe]] },
-  { id: 'return', name: 'Round Trip', goal: 'Reach 30 km, then land the capsule under 10 m/s.', budget: 3000, hint: 'Bring a parachute. Drop empty stages before you fall back.',
+  { id: 'return', name: 'Round Trip', goal: 'Reach 30 km, then land your craft under 10 m/s.', budget: 3000, hint: 'Bring a parachute. Drop empty stages before you fall back.',
     check: (s) => s.maxAlt >= 30000 && s.landedSafe, stars: [['Space + soft landing', (s) => s.maxAlt >= 30000 && s.landedSafe], ['Thrifty: cost 2,000 cr or less', (s, c) => c <= 2000], ['Gentle ride: never above 4 g', (s) => s.maxG <= 4 && s.maxAlt >= 30000]] },
   { id: 'flyby', name: 'Moon Flyby', goal: 'Fly into Lumo\'s sphere of influence (SOI).', budget: 4000, dv: 3000, hint: 'From low orbit, burn forward about 560 m/s at the right moment so your Ap reaches Lumo (3,000 km). Open the Map: an "Encounter: Lumo" marker means you will get there. Lumo\'s SOI = a·(m/M)^(2/5) ≈ 505 km.',
     check: (s) => !!s.soi.lumo, stars: [['Enter Lumo\'s SOI', (s) => !!s.soi.lumo], ['Thrifty: cost 2,500 cr or less', (s, c) => c <= 2500], ['Come home: soft landing on Numeria', (s) => !!s.soi.lumo && s.landedSafe]] },
@@ -41,6 +43,8 @@ const MISSIONS = [
     check: (s) => s.landedLumoBeforeHome && s.landedSafe, stars: [['Lumo, then home', (s) => s.landedLumoBeforeHome && s.landedSafe], ['Thrifty: cost 3,500 cr or less', (s, c) => c <= 3500], ['Gentle ride: never above 5 g', (s) => s.maxG <= 5 && s.landedLumoBeforeHome]] },
   { id: 'escape', name: 'Escape', goal: 'Leave Numeria\'s SOI and orbit the star Ember.', budget: 4500, dv: 3100, hint: 'Escape speed is √2 × circle speed. From low orbit that is ≈ 680 m/s more. Numeria\'s SOI = a·(m/M)^(2/5) ≈ 11,900 km. Use time warp to coast out!',
     check: (s) => !!s.soi.ember, stars: [['Reach Ember orbit', (s) => !!s.soi.ember], ['Thrifty: cost 2,500 cr or less', (s, c) => c <= 2500], ['Efficient: under 3,300 m/s Δv used', (s) => !!s.soi.ember && s.dvUsed < 3300]] },
+  { id: 'heavy', name: 'Heavy Lift', goal: 'Reach orbit using side boosters.', budget: 3500, hint: 'Add Side Boosters (radial decouplers) to a core tank. They fire with Stage 1; press STAGE when they burn out to drop the empty weight. Try "Example: Booster Heavy". A fairing or nose cone cuts drag.',
+    check: (s) => s.orbit && s.usedBoosters, stars: [['Orbit with side boosters', (s) => s.orbit && s.usedBoosters], ['Thrifty: cost 2,300 cr or less', (s, c) => c <= 2300], ['Open the fairing in space', (s) => s.orbit && s.usedBoosters && s.fairingJett]] },
   { id: 'free', name: 'Free Flight', goal: 'No goal, no budget. Build anything!', budget: Infinity, hint: 'Try a huge rocket. Visit Lumo, or escape to orbit Ember!', check: () => false, stars: [] },
 ];
 let mission = MISSIONS[0];
@@ -98,6 +102,7 @@ document.querySelector('.hv-top').addEventListener('click', (e) => {
   if (act === 'ex1') builder.setStack(EX_HOPPER);
   if (act === 'ex2') builder.setStack(EX_ORBITER);
   if (act === 'ex3') builder.setStack(EX_MOON);
+  if (act === 'ex4') builder.setStack(EX_HEAVY);
   if (act === 'clear') builder.setStack([]);
   if (act === 'help') overlay('help', true);
 });
@@ -113,8 +118,13 @@ function updateStats() {
     ${isFinite(m.budget) ? `<div class="bar2 ${over ? 'over' : ''}"><div style="width:${pct}%"></div></div>` : ''}
     <div class="kv"><b>Mass</b><span>${S.mass.toFixed(2)} t</span></div><div class="kv"><b>Parts</b><span>${S.parts} (struts hold ${6 + 4 * S.struts})</span></div>`;
   let rows = '';
-  for (const s of S.stages) rows += `<tr><td>Stage ${s.num}</td><td>${n0(s.dv)}</td><td class="${s.info.engines && s.twr < 1 ? 'low' : ''}">${s.info.engines ? s.twr.toFixed(2) : '–'}</td><td>${s.burn ? n0(s.burn) + ' s' : '–'}</td></tr>`;
-  $('#st-stages').innerHTML = S.stages.length ? `<table class="stg"><tr><th>Fires</th><th>Δv m/s</th><th>TWR</th><th>Burn</th></tr>${rows}</table>` : '<div class="kv"><b>No stages yet</b></div>';
+  for (const s of S.stages) {
+    if (s.boosters && s.rows.length > 1) {
+      // parallel staging: core + boosters together, then the core alone
+      s.rows.forEach((r, j) => (rows += `<tr class="sub" title="${r.boosters ? 'Core engines and side boosters burn together. Δv = c·ln(m0/m1) with c = total thrust ÷ total mass flow.' : 'After the boosters drop, the core keeps going with the fuel it has left.'}"><td>Stage ${s.num}${r.boosters ? ' + boosters' : ' core'}</td><td>${n0(r.dv)}</td><td class="${r.twr < 1 && j === 0 ? 'low' : ''}">${r.twr.toFixed(2)}</td><td>${r.burn ? n0(r.burn) + ' s' : '–'}</td></tr>`));
+    } else rows += `<tr><td>Stage ${s.num}${s.boosters ? ' + boosters' : ''}</td><td>${n0(s.dv)}</td><td class="${s.thrust && s.twr < 1 ? 'low' : ''}">${s.thrust ? s.twr.toFixed(2) : '–'}</td><td>${s.burn ? n0(s.burn) + ' s' : '–'}</td></tr>`;
+  }
+  $('#st-stages').innerHTML = S.stages.length ? `<table class="stg"><tr><th>Fires</th><th>Δv m/s</th><th>TWR</th><th>Burn</th></tr>${rows}</table><div class="kv small"><b>Air drag factor</b><span title="1.6 = plain blunt top. Nose cones and fairings make it smaller.">${S.cd.toFixed(2)}</span></div>` : '<div class="kv"><b>No stages yet</b></div>';
   const need = m.dv || ORBIT_DV;
   const dvPct = Math.min(100, (S.dvTotal / need) * 100);
   $('#st-dv').innerHTML = `<div class="kv"><b>Total Δv</b><span>${n0(S.dvTotal)} m/s</span></div>
@@ -123,9 +133,22 @@ function updateStats() {
   const sel = builder.sel >= 0 ? builder.stack[builder.sel] : null;
   if (sel) {
     const P = PARTS[sel.type];
-    $('#st-sel').innerHTML = `<div class="kv"><b>Selected</b><span>${P.name}</span></div><div class="mg" style="font-size:13px;color:var(--muted)">${P.blurb}</div><div class="chips">
+    const chip = (attr, val, label, on, tip = '', dis = false) => `<button data-${attr}="${val}" class="${on ? 'on' : ''}" title="${tip}" ${dis ? 'disabled' : ''}>${label}</button>`;
+    let extra = '';
+    if (sel.type === 'fairing') {
+      extra += `<div class="opt"><b>Fairing shape</b><div class="chips">${Object.entries(FAIR_SHAPES).map(([k, v]) => chip('fs', k, v.name, (sel.shape || 'ogive') === k, `${v.tip} · drag ×${v.cd}`)).join('')}</div></div>`;
+      extra += `<div class="opt"><b>Length</b><div class="chips">${Object.entries(FAIR_LEN).map(([k, v]) => chip('fl', k, v.name, String(sel.len || 2) === k, `Shell ${fairShellMass(+k).toFixed(2)} t`)).join('')}</div></div>`;
+      extra += `<div class="mg small">Shell: ${fairShellMass(sel.len).toFixed(2)} t. Covers every part above it. In flight press <b>F</b> (or STAGE when nothing else is left) to split it off.</div>`;
+    }
+    if (sel.side) {
+      const sd = sel.side, srb = PARTS[sd.body].srb;
+      extra += `<div class="opt"><b>Side boosters (×2)</b><div class="chips">${SIDE_BODIES.map((k) => chip('sb', k, PARTS[k].name.replace(' Solid Booster', ' SRB'), sd.body === k, PARTS[k].blurb)).join('')}</div></div>`;
+      extra += `<div class="opt"><b>Booster engine</b><div class="chips">${SIDE_ENGINES.map((k) => chip('se', k || 'none', k ? PARTS[k].name : 'None', (sd.eng || '') === k && !srb, k ? PARTS[k].blurb : '', srb)).join('')}</div>${srb ? '<div class="mg small">Solid boosters have their own nozzle.</div>' : ''}</div>`;
+      extra += `<div class="opt"><b>Booster nose cone</b><div class="chips">${SIDE_NOSES.map((k) => chip('sn', k || 'none', k ? PARTS[k].name.replace(' Nose Cone', '') : 'None', (sd.nose || '') === k, k ? PARTS[k].blurb : 'Optional')).join('')}</div></div>`;
+    }
+    $('#st-sel').innerHTML = `<div class="kv"><b>Selected</b><span>${P.name}</span></div><div class="mg" style="font-size:13px;color:var(--muted)">${P.blurb}</div>${extra}<div class="chips">
       <button data-s="up">▲ Up</button><button data-s="down">▼ Down</button><button data-s="del">✕ Remove</button>
-      ${sel.fins ? '<button data-s="fins">✕ Fins</button>' : ''}${sel.struts ? '<button data-s="struts">✕ Struts</button>' : ''}${sel.legs ? '<button data-s="legs">✕ Legs</button>' : ''}</div>`;
+      ${sel.fins ? '<button data-s="fins">✕ Fins</button>' : ''}${sel.struts ? '<button data-s="struts">✕ Struts</button>' : ''}${sel.legs ? '<button data-s="legs">✕ Legs</button>' : ''}${sel.side ? '<button data-s="side">✕ Side boosters</button>' : ''}</div>`;
   } else $('#st-sel').innerHTML = '<div class="kv"><b>Tip</b><span>Tap a part to select it</span></div>';
   const ul = $('#st-warn'); ul.innerHTML = '';
   const errs = [...S.errors]; if (over) errs.push(`Over budget by ${n0(S.cost - m.budget)} cr. Remove something!`);
@@ -137,8 +160,13 @@ function updateStats() {
 $('#st-sel').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   const s = b.dataset.s;
+  if (b.dataset.fs) builder.setFairing('shape', b.dataset.fs);
+  if (b.dataset.fl) builder.setFairing('len', +b.dataset.fl);
+  if (b.dataset.sb) builder.setSide('body', b.dataset.sb);
+  if (b.dataset.se) builder.setSide('eng', b.dataset.se === 'none' ? '' : b.dataset.se);
+  if (b.dataset.sn) builder.setSide('nose', b.dataset.sn === 'none' ? '' : b.dataset.sn);
   if (s === 'up') builder.moveSel(-1); if (s === 'down') builder.moveSel(1); if (s === 'del') builder.removeSelected();
-  if (s === 'fins' || s === 'struts' || s === 'legs') builder.stripRadial(s);
+  if (s === 'fins' || s === 'struts' || s === 'legs' || s === 'side') builder.stripRadial(s);
 });
 $('#b-launch').addEventListener('click', launch);
 
@@ -170,13 +198,15 @@ function syncButtons() {
   $('#b-chute').classList.toggle('on', flight.chuteArmed);
   $('#b-legs').classList.toggle('on', flight.legsDown);
   $('#b-legs').disabled = !flight.legs;
+  $('#b-fair').disabled = !flight.hasFairing;
 }
 const MAPZ = [0.00005, 40];
 const HOLDS = ['free', 'up', 'pro', 'retro'];
 const act = {
-  stage: () => flight && flight.stage(),
+  stage: () => { flight && flight.stage(); syncButtons(); },
   legs: () => { flight && flight.toggleLegs(); syncButtons(); },
   chute: () => { flight && flight.armChute(); syncButtons(); },
+  fairing: () => { flight && flight.jettisonFairing(); syncButtons(); },
   map: () => { view.map = !view.map; syncButtons(); },
   hold: () => { if (!flight) return; flight.hold = HOLDS[(HOLDS.indexOf(flight.hold) + 1) % HOLDS.length]; syncButtons(); },
   warpUp: () => { if (flight) { flight.warpIdx = Math.min(WARPS.length - 1, flight.warpIdx + 1); syncButtons(); } },
@@ -188,6 +218,7 @@ const act = {
 $('#b-stage').addEventListener('click', act.stage);
 $('#b-chute').addEventListener('click', act.chute);
 $('#b-legs').addEventListener('click', act.legs);
+$('#b-fair').addEventListener('click', act.fairing);
 $('#b-map').addEventListener('click', act.map);
 $('#b-hold').addEventListener('click', act.hold);
 $('#b-warp').addEventListener('click', (e) => { if (flight && flight.warpIdx >= WARPS.length - 1) { flight.warpIdx = 0; syncButtons(); } else act.warpUp(); });
@@ -251,6 +282,7 @@ window.addEventListener('keydown', (e) => {
     case 'KeyM': act.map(); break;
     case 'KeyP': act.chute(); break;
     case 'KeyG': act.legs(); break;
+    case 'KeyF': act.fairing(); break;
     case 'KeyH': act.hold(); break;
     case 'Comma': act.warpDown(); break;
     case 'Period': act.warpUp(); break;
@@ -299,7 +331,8 @@ function updateHud(dt) {
   set('h-sdv', ms(h.stageDv)); set('h-tdv', ms(h.totalDv));
   set('h-twr', flight.activeInfo.engines ? h.twr.toFixed(2) : '–');
   set('h-g', `${h.g.toFixed(1)} g`);
-  set('h-fuel', `${Math.round(h.fuelFrac * 100)}% · ${h.sections} section${h.sections > 1 ? 's' : ''}`);
+  set('h-fuel', `${Math.round(h.fuelFrac * 100)}% · ${h.boosters ? `+${h.boosters} boosters` : `${h.sections} section${h.sections > 1 ? 's' : ''}`}`);
+  set('h-srb', h.srb);
   $('#h-fbar').style.width = `${h.fuelFrac * 100}%`;
   const t = Math.floor(h.t); set('h-time', `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`);
   if (document.activeElement !== thr) thr.value = Math.round(flight.throttle * 100);
@@ -311,7 +344,7 @@ function updateHud(dt) {
   else if (mission.id === 'flyby') gs = flight.encounter ? '<span class="ok">Encounter: Lumo</span> on your path. Warp ahead!' : `Orbiting ${h.body}. Map (M) shows SOIs.`;
   else if (mission.id === 'escape') gs = `Orbiting ${h.body}: Ap ${h.leaves ? '<span class="ok">leaves SOI</span>' : fmtKm(h.ap)} · SOI edge ${fmtKm(BODIES.numeria.soi - PLANET.R)}`;
   else if (mission.id === 'moonland' || mission.id === 'moonback') gs = flight.stats.landedLumo ? '✓ Landed on Lumo. Now fly home and land!' : `Orbiting ${h.body}${flight.encounter ? ' · <span class="ok">Encounter: Lumo</span>' : ''}${flight.legs ? flight.legsDown ? ' · legs down' : ' · legs up (G)' : ''}`;
-  else gs = mission.id === 'orbit' ? `Low point: ${grounded ? '–' : h.pe < 0 ? 'underground' : fmtKm(h.pe)} → need 30 km` : `Best height: ${fmtKm(flight.stats.maxAlt)}`;
+  else gs = mission.id === 'orbit' || mission.id === 'heavy' ? `Low point: ${grounded ? '–' : h.pe < 0 ? 'underground' : fmtKm(h.pe)} → need 30 km` : `Best height: ${fmtKm(flight.stats.maxAlt)}`;
   const el = $('#h-goalstate'); if (el.innerHTML !== gs) el.innerHTML = gs;
   if ($('#b-warp').textContent.indexOf('×' + h.warp) !== 0) syncButtons();
 }
@@ -400,11 +433,11 @@ requestAnimationFrame(frame);
 
 // ---------- offline support
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {}));
 }
 // test hook for automated screenshots
 window.__fcgm = {
-  get flight() { return flight; }, builder, view, MISSIONS, BODIES, openHangar, launch, show, EX_MOON,
+  get flight() { return flight; }, builder, view, MISSIONS, BODIES, openHangar, launch, show, EX_MOON, EX_HEAVY, VERSION, syncButtons,
   teleport(o) { if (flight) { flight.debugPlace(o); syncButtons(); } },
   setWarp(i) { if (flight) { flight.warpIdx = i; syncButtons(); } },
   get missionDone() { return missionDone; }, showResults: () => showResults(), pause: (p) => { paused = p; },

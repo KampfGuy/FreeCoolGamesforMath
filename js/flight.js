@@ -1,6 +1,6 @@
 // Flight simulation (2D patched-conic orbital mechanics: star Ember, planet Numeria, moon Lumo) + rendering.
-import { PARTS, W, TAU, G0, drawStack, COL, legFootDrop } from './parts.js';
-import { PLANET, BODIES, density, splitSections, sectionInfo, orbitOf, circleSpeed, stiffLimit, relState, localState, convertFrame, soiCheck, landingResult } from './physics.js';
+import { PARTS, W, TAU, G0, drawStack, COL, legFootDrop, boosterParts, SIDE_DX, FAIR_LEN, drawFairingShell, fairShellMass } from './parts.js?v=boost1';
+import { PLANET, BODIES, density, splitSections, sectionInfo, orbitOf, circleSpeed, stiffLimit, relState, localState, convertFrame, soiCheck, landingResult, sideBoosters, boosterWet, boosterInfo, dragFactor, planDv, srbFuel } from './physics.js?v=boost1';
 
 export const WARPS = [1, 2, 5, 10, 50, 500, 5000];
 const WARP_BURN = 2, WARP_AIR = 3; // max warp index while burning / on the ground, and inside the air
@@ -23,7 +23,15 @@ const T_LOCAL = (r, b) => TAU * Math.sqrt((r * r * r) / b.mu);
 
 export class Flight {
   constructor(stack) {
-    this.sections = splitSections(stack.map((p) => ({ ...p }))).map((parts) => { const i = sectionInfo(parts); return { parts, fuel: i.fuel, fuelMax: i.fuel }; });
+    const copy = stack.map((p) => {
+      const q = { ...p };
+      if (PARTS[q.type].srb) q.sf = PARTS[q.type].sfuel;
+      if (q.side) { const bi = boosterInfo(q.side); q.side = { ...q.side, fuel: bi.fuel, sf: bi.sfuel }; }
+      if (q.type === 'fairing') q.jett = false;
+      return q;
+    });
+    this.sections = splitSections(copy).map((parts) => { const i = sectionInfo(parts); return { parts, fuel: i.fuel, fuelMax: i.fuel, sfMax: i.sfuel }; });
+    this.boostersLit = false; this.coreFlame = 0; this.sideFlame = 0;
     this.body = 'numeria';
     this.px = 0; this.py = PLANET.R; this.vx = 0; this.vy = 0;
     this.heading = Math.PI / 2; this.omega = 0;
@@ -33,7 +41,7 @@ export class Flight {
     this.onGround = true; this.leftGround = false;
     this.warpIdx = 0; this.t = 0; this.isp = 0;
     this.state = 'flying'; this.endReason = '';
-    this.stats = { maxAlt: 0, maxSpeed: 0, maxG: 0, orbit: false, landedSafe: false, splash: false, dvUsed: 0, space: false, soi: { numeria: true }, landedLumo: false, lumoSpeed: 0, landedLumoBeforeHome: false };
+    this.stats = { usedBoosters: false, fairingJett: false, maxAlt: 0, maxSpeed: 0, maxG: 0, orbit: false, landedSafe: false, splash: false, dvUsed: 0, space: false, soi: { numeria: true }, landedLumo: false, lumoSpeed: 0, landedLumoBeforeHome: false };
     this.debris = []; this.particles = []; this.events = [];
     this.hold = 'free'; this.aim = null; this.turn = 0;
     this.thrustNow = 0; this.gNow = 0; this.flags = {};
@@ -49,19 +57,58 @@ export class Flight {
     for (const s of this.sections) {
       const i = sectionInfo(s.parts);
       dry += i.dry; fins += i.fins; struts += i.struts; legs += i.legs; n += s.parts.length; height += i.height;
-      capsule = capsule || i.capsule; chute = chute || i.chute; te += i.tanks + i.engines;
+      capsule = capsule || i.command; chute = chute || i.chute; te += i.tanks + i.engines;
     }
     Object.assign(this, { dry, fins, struts, legs, partCount: n, height, hasCapsule: capsule, hasChute: chute });
     this.capsuleOnly = te === 0;
     this.wobbly = n > stiffLimit(struts);
     this.activeInfo = sectionInfo(this.bottom.parts);
     this.allParts = this.sections.flatMap((s) => s.parts);
+    this.boosters = sideBoosters(this.allParts);
+    this.cd = dragFactor(this.allParts, this.boosters);
+    const fi = this.allParts.findIndex((p) => p.type === 'fairing' && !p.jett);
+    this.fairingIdx = fi;
+    if (fi >= 0) { let cov = 0; for (let j = 0; j < fi; j++) cov += PARTS[this.allParts[j].type].h; this.fairingCover = cov; height += FAIR_LEN[this.allParts[fi].len || 2].ext + (this.allParts[fi].shape === 'bulb' ? 0.4 : 0); }
+    this.height = height;
     this.footDrop = legFootDrop(this.allParts);
     if (!legs) this.legsDown = false;
   }
   get bottom() { return this.sections[this.sections.length - 1]; }
-  get fuelTotal() { return this.sections.reduce((a, s) => a + s.fuel, 0); }
-  get mass() { return this.dry + this.fuelTotal; }
+  get fuelTotal() { return this.sections.reduce((a, s) => a + s.fuel + s.parts.reduce((b, p) => b + (p.sf || 0), 0), 0); }
+  get boosterMass() { return this.boosters.reduce((a, b) => a + boosterWet(b), 0); }
+  get mass() { return this.dry + this.fuelTotal + this.boosterMass; }
+  // SRBs in the active section + side-booster SRBs that are lit and still have fuel
+  get srbBurning() { return this.ignited && (this.bottom.parts.some((p) => p.sf > 0) || (this.boostersLit && this.boosters.some((b) => PARTS[b.side.body].srb && b.side.sf > 0))); }
+  get hasFairing() { return this.fairingIdx >= 0; }
+  jettisonFairing() {
+    if (this.state !== 'flying') return false;
+    const i = this.fairingIdx;
+    if (i < 0) { this.emit('No fairing to open.', 'warn'); return false; }
+    const p = this.allParts[i];
+    // where the fairing base is along the rocket (meters up from the bottom)
+    let below = 0; for (let j = this.allParts.length - 1; j >= i; j--) below += PARTS[this.allParts[j].type].h;
+    const hx = Math.cos(this.heading), hy = Math.sin(this.heading), nx = -hy, ny = hx;
+    const cover = this.fairingCover, m = fairShellMass(p.len) / 2;
+    for (const side of [-1, 1]) {
+      this.debris.push({ fairing: { shape: p.shape || 'ogive', len: p.len || 2, cover, half: side }, body: this.body, px: this.px + hx * below, py: this.py + hy * below, vx: this.vx + nx * side * 6, vy: this.vy + ny * side * 6, heading: this.heading, omega: -side * 0.8, mass: m, t: 0 });
+    }
+    p.jett = true; this.stats.fairingJett = true;
+    this.recalc();
+    this.emit('Fairing open! The two halves fall away.', 'good');
+    return true;
+  }
+  dropBoosters() {
+    const hx = Math.cos(this.heading), hy = Math.sin(this.heading), nx = -hy, ny = hx;
+    for (const b of this.boosters) {
+      let below = 0; for (let j = this.allParts.length - 1; j > b.idx; j--) below += PARTS[this.allParts[j].type].h;
+      const parts = boosterParts(b.side), m = b.info.dry + b.fuel + b.sf;
+      for (const side of [-1, 1]) this.debris.push({ parts, body: this.body, px: this.px + hx * below + nx * side * SIDE_DX, py: this.py + hy * below + ny * side * SIDE_DX, vx: this.vx + nx * side * 4 - hx * 2, vy: this.vy + ny * side * 4 - hy * 2, heading: this.heading, omega: -side * 0.35, mass: Math.max(0.2, m), cd: 0.5 * b.info.nose, t: 0, burn: b.side.sf > 0 && PARTS[b.side.body].srb });
+      delete b.host.side;
+    }
+    const n = this.boosters.length * 2;
+    this.recalc(); this.flags.boostEmpty = false;
+    this.emit(`Side boosters away! (${n} dropped) The core keeps burning.`, 'good');
+  }
   get alt() { return Math.hypot(this.px, this.py) - this.B.R; }
   get speed() { return Math.hypot(this.vx, this.vy); }
   get turnRate() { return clamp(1.3 / Math.sqrt(this.mass), 0.3, 0.9); }
@@ -82,12 +129,15 @@ export class Flight {
 
   stage() {
     if (this.state !== 'flying') return;
-    if (!this.ignited && this.activeInfo.engines > 0) {
+    if (!this.ignited && (this.activeInfo.engines > 0 || this.boosters.length)) {
       this.ignited = true;
       if (this.throttle < 0.05) this.throttle = 1;
-      this.emit(this.onGround ? 'Liftoff! Engines on.' : 'Engines on!');
+      if (this.boosters.length) { this.boostersLit = true; this.stats.usedBoosters = true; }
+      const srb = this.activeInfo.srbs > 0 || this.boosters.some((b) => PARTS[b.side.body].srb);
+      this.emit((this.onGround ? 'Liftoff! Engines on.' : 'Engines on!') + (this.boosters.length ? ' Side boosters firing.' : '') + (srb ? ' Solid boosters burn at full power until empty.' : ''));
       return;
     }
+    if (this.boosters.length) { this.dropBoosters(); return; }
     if (this.sections.length > 1) {
       const dropped = this.sections.pop();
       const di = sectionInfo(dropped.parts);
@@ -102,6 +152,7 @@ export class Flight {
       this.emit(`Stage dropped! ${this.ignited ? 'Next engines on.' : 'Coasting.'} (${left} section${left > 1 ? 's' : ''} left)`);
       return;
     }
+    if (this.hasFairing) { this.jettisonFairing(); return; }
     if (this.hasChute && !this.chuteArmed) { this.armChute(); return; }
     this.emit('Nothing left to stage.');
   }
@@ -114,7 +165,7 @@ export class Flight {
 
   // Highest warp allowed right now (index into WARPS) and why.
   warpCap() {
-    const burning = this.ignited && this.throttle > 0 && this.bottom.fuel > 0;
+    const burning = this.thrustNow > 0 || this.srbBurning;
     if (burning || this.onGround) return [WARP_BURN, `Warp is ×${WARPS[WARP_BURN]} max while engines burn or on the ground.`];
     const alt = this.alt, b = this.B;
     if (b.atm && alt < b.atm) return [WARP_AIR, `Warp is ×${WARPS[WARP_AIR]} max in the air.`];
@@ -151,7 +202,8 @@ export class Flight {
     if (this.altNumeria > PLANET.atm) { if (!s.space) { s.space = true; this.emit('You reached space! (above 30 km)', 'good'); } }
     if (this.body === 'numeria' && alt > PLANET.atm && this.orbit.bound && this.orbit.pe > PLANET.atm && !s.orbit) { s.orbit = true; this.emit('ORBIT! Your low point is above the air. You are falling around the planet.', 'good'); }
     if (this.body === 'lumo' && !this.onGround && this.orbit.bound && this.orbit.pe > 3000 && this.orbit.ra < b.soi) this.once('lumoOrbit', 'You are orbiting Lumo!', 'good');
-    if (this.ignited && this.bottom.fuel <= 1e-6 && this.activeInfo.engines > 0) this.once('empty', this.sections.length > 1 ? 'Stage out of fuel: press STAGE (Space) to drop it.' : 'Out of fuel!', 'warn');
+    if (this.boostersLit && this.boosters.length && this.boosters.every((b) => b.side.fuel <= 1e-6 && b.side.sf <= 1e-6)) this.once('boostEmpty', 'Side boosters burned out: press STAGE (Space) to drop them.', 'warn');
+    if (this.ignited && this.bottom.fuel <= 1e-6 && !this.bottom.parts.some((p) => p.sf > 0) && this.activeInfo.engines > 0) this.once('empty', this.sections.length > 1 ? 'Stage out of fuel: press STAGE (Space) to drop it.' : 'Out of fuel!', 'warn');
     if (this.wobbly && this.gNow > 3) this.once('wob', 'Wobbly! Too many parts for your struts.', 'warn');
     if (this.body === 'lumo' && this.legs && !this.legsDown && alt < 3000 && !this.onGround) this.once('legHint', 'Tip: press G to put your landing legs down!', 'warn');
     // exhaust puffs in the air
@@ -205,15 +257,28 @@ export class Flight {
       this.omega += alpha * Math.min(dt, 0.1); this.heading += this.omega * dt;
     }
     // --- thrust
-    let thrust = 0; const act = this.bottom, info = this.activeInfo;
-    if (this.ignited && act.fuel > 0 && info.thrust > 0 && this.throttle > 0) {
-      const pr = Math.min(1, rho / PLANET.rho0);
-      const isp = info.ispVac + (info.ispAtm - info.ispVac) * pr;
-      thrust = info.thrust * this.throttle;
-      let used = (thrust / (isp * G0)) * dt;
-      if (used > act.fuel) { thrust *= act.fuel / used; used = act.fuel; }
-      act.fuel -= used; this.stats.dvUsed += (thrust / m) * dt; this.isp = isp;
+    // Liquid engines follow the throttle. SRBs ignore it: once lit, full thrust until empty.
+    let thrust = 0, flow = 0, coreT = 0, coreMax = 0, sideT = 0, sideMax = 0; const act = this.bottom, info = this.activeInfo;
+    const pr = Math.min(1, rho / PLANET.rho0);
+    const burn = (T, ia, iv, have) => { // returns [thrust, fuel used]
+      if (T <= 0 || have <= 0) return [0, 0];
+      const isp = iv + (ia - iv) * pr; let used = (T / (isp * G0)) * dt;
+      if (used > have) { T *= have / used; used = have; }
+      thrust += T; flow += T / (isp * G0); return [T, used];
+    };
+    if (this.ignited) {
+      coreMax = info.thrust;
+      if (info.liqThrust > 0 && this.throttle > 0) { const [T, u] = burn(info.liqThrust * this.throttle, info.liqIspAtm, info.liqIspVac, act.fuel); act.fuel -= u; coreT += T; }
+      for (const p of act.parts) if (p.sf > 0) { const P = PARTS[p.type]; const [T, u] = burn(P.thrust, P.ispAtm, P.ispVac, p.sf); p.sf -= u; coreT += T; }
+      if (this.boostersLit) for (const b of this.boosters) {
+        const sd = b.side; sideMax += b.info.thrust;
+        if (b.info.liqThrust > 0 && this.throttle > 0) { const [T, u] = burn(2 * b.info.liqThrust * this.throttle, b.info.liqIspAtm, b.info.liqIspVac, 2 * sd.fuel); sd.fuel -= u / 2; sideT += T / 2; }
+        const P = PARTS[sd.body];
+        if (P.srb && sd.sf > 0) { const [T, u] = burn(2 * P.thrust, P.ispAtm, P.ispVac, 2 * sd.sf); sd.sf -= u / 2; sideT += T / 2; }
+      }
+      if (thrust > 0) { this.stats.dvUsed += (thrust / m) * dt; this.isp = thrust / (flow * G0); }
     }
+    this.coreFlame = coreMax ? coreT / coreMax : 0; this.sideFlame = sideMax ? sideT / sideMax : 0;
     this.thrustNow = thrust;
     const hx = Math.cos(this.heading), hy = Math.sin(this.heading);
     const g = mu / (r * r);
@@ -221,7 +286,7 @@ export class Flight {
     let dragA = 0;
     if (rho > 0 && v > 0.01) {
       const q = 0.5 * rho * v * v;
-      dragA = (q * (1.6 + 0.12 * this.fins + 0.3 * this.legAnim * Math.min(1, this.legs))) / (1000 * m);
+      dragA = (q * (this.cd + 0.12 * this.fins + 0.3 * this.legAnim * Math.min(1, this.legs))) / (1000 * m);
       if (this.chute > 0) dragA += Math.min(40, (q * 600 * this.chute) / (1000 * m));
       ax -= (this.vx / v) * dragA; ay -= (this.vy / v) * dragA;
     }
@@ -309,7 +374,7 @@ export class Flight {
         const r = Math.hypot(d.px, d.py), alt = r - R, g = mu / (r * r);
         let ax = (-g * d.px) / r, ay = (-g * d.py) / r;
         const v = Math.hypot(d.vx, d.vy), rho = density(alt, b);
-        if (rho > 0 && v > 0.1) { const a = (0.5 * rho * v * v * 1.6) / (1000 * d.mass); ax -= (d.vx / v) * a; ay -= (d.vy / v) * a; }
+        if (rho > 0 && v > 0.1) { const a = (0.5 * rho * v * v * (d.cd || 1.6)) / (1000 * d.mass); ax -= (d.vx / v) * a; ay -= (d.vy / v) * a; }
         d.vx += ax * h; d.vy += ay * h; d.px += d.vx * h; d.py += d.vy * h; d.heading += d.omega * h;
         if (alt <= 0 || r > b.soi) { d.dead = true; break; }
       }
@@ -349,22 +414,27 @@ export class Flight {
     const m = this.mass;
     const info = this.activeInfo, rho = density(r - b.R, b);
     const isp = info.thrust ? info.ispVac + (info.ispAtm - info.ispVac) * Math.min(1, rho / PLANET.rho0) : 0;
-    const stageDv = info.thrust && this.bottom.fuel > 0 ? isp * G0 * Math.log(m / (m - this.bottom.fuel)) : 0;
-    // total remaining (vacuum) across sections, bottom first
-    let total = 0, massAbove = 0;
-    const secMass = this.sections.map((s) => sectionInfo(s.parts).dry + s.fuel);
-    for (let k = 0; k < this.sections.length; k++) {
-      const s = this.sections[k], i = sectionInfo(s.parts);
-      const wet = massAbove + secMass[k];
-      if (i.thrust && s.fuel > 0) total += i.ispVac * G0 * Math.log(wet / (wet - s.fuel));
-      massAbove = wet;
-    }
+    const prNow = Math.min(1, rho / PLANET.rho0);
+    const plan = planDv(this.sections, this.boosters, prNow), planV = planDv(this.sections, this.boosters, 0);
+    const stageDv = plan.length ? plan[0].dv : 0;
+    const total = planV.reduce((a, s) => a + s.dv, 0);
+    // thrust available right now (liquid at full throttle + every SRB that still has fuel)
+    let avail = 0;
+    if (this.bottom.fuel > 0) avail += info.liqThrust;
+    for (const p of this.bottom.parts) if (srbFuel(p) > 0) avail += PARTS[p.type].thrust;
+    for (const bb of this.boosters) { if (bb.side.fuel > 0) avail += 2 * bb.info.liqThrust; if (PARTS[bb.side.body].srb && bb.side.sf > 0) avail += 2 * PARTS[bb.side.body].thrust; }
+    // SRB status for the HUD
+    let srbTxt = '–', srbLeft = 0, srbReady = false;
+    const srbList = [...this.bottom.parts.filter((p) => PARTS[p.type].srb).map((p) => [PARTS[p.type], p.sf]), ...this.boosters.filter((bb) => PARTS[bb.side.body].srb).map((bb) => [PARTS[bb.side.body], bb.side.sf])];
+    for (const [P, f] of srbList) { if (f > 0) { srbReady = true; srbLeft = Math.max(srbLeft, f / (P.thrust / (P.ispVac + (P.ispAtm - P.ispVac) * prNow) / G0)); } }
+    if (srbList.length) srbTxt = this.srbBurning ? `🔥 ${Math.ceil(srbLeft)} s left` : srbReady ? 'ready' : 'burned out';
+    const fuelMax = this.bottom.fuelMax + this.bottom.sfMax, fuelNow = this.bottom.fuel + this.bottom.parts.reduce((a, p) => a + (p.sf || 0), 0);
     const gLocal = b.mu / (r * r);
     const leaves = o.ra > b.soi || !o.bound;
     return {
       body: b.name, bodyKey: b.key, soi: b.soi, leaves,
       alt: r - b.R - (this.onGround ? this.footOff : 0), speed: this.speed, vVert, vSide, cs, ap: o.ap, pe: o.pe, e: o.e, stageDv, totalDv: total,
-      twr: this.bottom.fuel > 0 ? info.thrust / (m * gLocal) : 0, g: this.gNow, fuelFrac: this.bottom.fuelMax ? this.bottom.fuel / this.bottom.fuelMax : 0,
+      twr: avail / (m * gLocal), g: this.gNow, fuelFrac: fuelMax ? fuelNow / fuelMax : 0, srb: srbTxt, boosters: this.boosters.length * 2, fairing: this.hasFairing,
       sections: this.sections.length, t: this.t, warp: WARPS[this.warpIdx], mass: m,
     };
   }
@@ -436,14 +506,15 @@ export class Flight {
       if (Math.hypot(dx, dy) > viewR + 40) continue;
       ctx.save(); ctx.translate(dx, dy); ctx.rotate(d.heading - Math.PI / 2); ctx.scale(1, -1);
       if (d.broken) ctx.globalAlpha = 0.5;
-      drawStack(ctx, d.parts, { lw: 1.3 / s, legs: d.broken ? 1 : 0 });
+      if (d.fairing) drawFairingShell(ctx, d.fairing.shape, d.fairing.cover, d.fairing.len, 1.3 / s, d.fairing.half);
+      else drawStack(ctx, d.parts, { lw: 1.3 / s, legs: d.broken ? 1 : 0, flame: d.burn && d.t < 1.5 ? 1 - d.t / 1.5 : 0, t: this.t });
       ctx.restore();
     }
     if (this.state !== 'crashed') {
       let bend = 0;
       if (this.wobbly && this.gNow > 1.5) bend = 0.03 * Math.min(1, (this.gNow - 1.5) / 3) * Math.sin(this.t * 9);
       ctx.save(); ctx.translate(this.px - cx, this.py - cy); ctx.rotate(this.heading - Math.PI / 2); ctx.scale(1, -1);
-      drawStack(ctx, this.allParts, { lw: 1.4 / s, bend, chute: this.chute, legs: this.legAnim, flame: this.thrustNow > 0 ? this.throttle : 0, vac: density(alt, b) < 0.05, t: this.t });
+      drawStack(ctx, this.allParts, { lw: 1.4 / s, bend, chute: this.chute, legs: this.legAnim, flame: this.coreFlame, sideFlame: this.sideFlame, vac: density(alt, b) < 0.05, t: this.t });
       ctx.restore();
     }
     ctx.restore();

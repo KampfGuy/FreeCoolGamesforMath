@@ -125,3 +125,11 @@ table.stg td:first-child, table.stg th:first-child { text-align: left; }
   #hud-b button { min-width: 44px; padding: 4px 7px; }
 }
 @media (max-height: 700px) { .hud { font-size: 12px; padding: 6px 10px; } }
+/* boost1: fairing / side-booster pickers */
+#st-sel .opt { margin-top: 8px; }
+#st-sel .opt > b { font-size: 12px; color: var(--muted); font-weight: 700; }
+#st-sel .chips button.on { background: #3b4ea0; border-color: var(--warn); color: #fff; }
+#st-sel .chips button:disabled { opacity: 0.4; }
+#st-sel .mg.small, .kv.small { font-size: 12px; color: var(--muted); margin-top: 4px; }
+table.stg tr.sub td:first-child { font-size: 12px; }
+#b-fair:disabled, #b-legs:disabled { opacity: 0.45; }

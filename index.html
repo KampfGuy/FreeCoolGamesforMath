@@ -9,7 +9,8 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="theme-color" content="#0b1236">
-<link rel="stylesheet" href="css/style.css">
+<meta name="fcgm-version" content="boost1">
+<link rel="stylesheet" href="css/style.css?v=boost1">
 </head>
 <body>
 <canvas id="cv" aria-label="Game view"></canvas>
@@ -39,10 +40,11 @@
         <button data-act="ex1">Example: Hopper</button>
         <button data-act="ex2">Example: Orbiter</button>
         <button data-act="ex3">Example: Moon Lander</button>
+        <button data-act="ex4" title="Probe core under an ogive fairing, two solid side boosters, reaches orbit">Example: Booster Heavy</button>
         <button data-act="clear">Clear</button>
         <button data-act="help">?</button>
       </div>
-      <div class="hv-hint">Drag parts onto the rocket (they snap). Tap a part on the rocket to select it, drag it off to remove.</div>
+      <div class="hv-hint">Drag parts onto the rocket (they snap). Tap a part on the rocket to select it, drag it off to remove. Select a fairing or side boosters to pick their shape and parts. Try <b>Example: Booster Heavy</b>!</div>
     </div>
     <aside id="stats" class="panel">
       <div id="st-mission"></div>
@@ -73,6 +75,7 @@
       <div class="row"><b>Total Δv left</b><span id="h-tdv"></span></div>
       <div class="row"><b>TWR now</b><span id="h-twr"></span></div>
       <div class="row"><b>G-force</b><span id="h-g"></span></div>
+      <div class="row" title="Solid rocket boosters ignore the throttle: once lit they burn until empty."><b>SRB burn</b><span id="h-srb"></span></div>
       <div class="row"><b>Stage fuel</b><span id="h-fuel"></span></div>
       <div class="meter fuel"><div id="h-fbar"></div></div>
       <div class="row small"><b>Time</b><span id="h-time"></span></div>
@@ -90,6 +93,7 @@
       <button id="b-hold" title="Auto-point mode (H)">Point: Free<small>H</small></button>
       <button id="b-chute" title="Arm parachute (P)">Chute<small>P</small></button>
       <button id="b-legs" title="Landing legs (G)">Legs<small>G</small></button>
+      <button id="b-fair" title="Open the fairing (F)">Fairing<small>F</small></button>
       <button id="b-map" title="Map (M)">Map<small>M</small></button>
       <button id="b-warp" title="Time warp (, and .)">×1<small>Warp</small></button>
       <button id="b-zin" title="Zoom in (+)">+</button>
@@ -114,9 +118,13 @@
     <div class="help-grid">
       <div>
         <h3>1 · Build</h3>
-        <p>Drag parts from the left onto the rocket; they snap into place. Put the <b>Pilot Capsule</b> on top. Tanks hold fuel, engines burn it. A <b>Stage Separator</b> splits the rocket into stages; press STAGE to drop the empty bottom part. Drag <b>fins</b> or <b>struts</b> onto a tank or engine.</p>
+        <p>Drag parts from the left onto the rocket; they snap into place. Put the <b>Pilot Capsule</b> or a light <b>Probe Core</b> on top. Tanks hold fuel, engines burn it. A <b>Stage Separator</b> splits the rocket into stages; press STAGE to drop the empty bottom part. Drag <b>fins</b> or <b>struts</b> onto a tank or engine.</p>
+        <h3>New parts</h3>
+        <p><b>Solid boosters (SRBs)</b>: fuel built in, lots of push, cheap, but once lit they burn at full power until empty: the throttle can't slow them.
+        <b>Side Boosters</b>: drop the radial decoupler on a core tank to add a pair; select it to choose SRB or tank + engine and a nose cone. They fire with Stage 1, then STAGE drops them.
+        <b>Nose cones</b> (optional) cut drag on top of the rocket or a booster. A <b>Fairing</b> goes <i>under</i> your payload and covers it; pick Ogive, Cone, Bullet or Bulbous. Press <b>F</b> to split it off in space.</p>
         <h3>2 · Fly</h3>
-        <p><b>Space</b> / STAGE = start engines, then drop stages. <b>W/S</b> or <b>↑/↓</b> = throttle (<b>Z</b> max, <b>X</b> zero). <b>A/D</b> or <b>←/→</b> = turn. Or hold the mouse / trackpad on the screen to point that way. <b>H</b> = auto-point, <b>M</b> = map, <b>P</b> = parachute, <b>G</b> = landing legs, <b>,</b> <b>.</b> = time warp (up to ×5000 when coasting in space), <b>Esc</b> = pause. Two-finger scroll zooms.</p>
+        <p><b>Space</b> / STAGE = start engines, then drop stages. <b>W/S</b> or <b>↑/↓</b> = throttle (<b>Z</b> max, <b>X</b> zero). <b>A/D</b> or <b>←/→</b> = turn. Or hold the mouse / trackpad on the screen to point that way. <b>H</b> = auto-point, <b>M</b> = map, <b>P</b> = parachute, <b>G</b> = landing legs, <b>F</b> = open fairing, <b>,</b> <b>.</b> = time warp (up to ×5000 when coasting in space), <b>Esc</b> = pause. Two-finger scroll zooms.</p>
         <h3>3 · Orbit trick</h3>
         <p>Fly up to about 8–10 km, then tip over sideways. Watch the <b>Sideways</b> speed climb toward <b>Circle speed</b>. When your low point (Pe) is above 30 km, you're in orbit!</p>
       </div>
@@ -124,6 +132,8 @@
         <h3>The math</h3>
         <p><b>TWR</b> = thrust ÷ weight. More than 1 means you can lift off.</p>
         <p><b>Δv</b> ("delta-v") = how much speed your fuel can add. Δv = Isp × 9.81 × ln(full mass ÷ empty mass). Dropping empty stages makes the rest lighter, so you get more Δv!</p>
+        <p><b>Parallel staging</b>: core + side boosters burn together. Add the thrusts and the fuel flows: ṁ = thrust ÷ (Isp × 9.81). Mixed exhaust speed c = total thrust ÷ total ṁ, and Δv = c × ln(m start ÷ m end). When the boosters are empty, drop them: the lighter core then gets its own Δv.</p>
+        <p><b>Drag</b> = ½ ρ v² × drag factor. A blunt top is 1.6; a nose cone makes it 1.1–1.3; a closed fairing ≈ 0.9–1.4 depending on shape.</p>
         <p><b>Isp</b> = how efficient an engine is (bigger is better). Engines are a bit weaker in thick air.</p>
         <p><b>Circle speed</b> = √(μ ÷ r): how fast you must go sideways to keep falling <i>around</i> the planet instead of into it. On Numeria that's about 1,600 m/s.</p>
         <p><b>Ap / Pe</b> = the highest and lowest points of your path.</p>
@@ -136,6 +146,6 @@
   <div id="toasts" aria-live="polite"></div>
 </div>
 <noscript><p style="color:#fff;padding:2em">This game needs JavaScript turned on.</p></noscript>
-<script type="module" src="js/main.js"></script>
+<script type="module" src="js/main.js?v=boost1"></script>
 </body>
 </html>

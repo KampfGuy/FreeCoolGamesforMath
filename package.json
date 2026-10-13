@@ -1,1 +1,1 @@
-{ "private": true, "type": "module", "scripts": { "test": "node tests/physics.test.js && node tests/moon.test.js --home" } }
+{ "private": true, "type": "module", "scripts": { "test": "node tests/version.test.js && node tests/boost.test.js && node tests/physics.test.js && node tests/moon.test.js --home" } }

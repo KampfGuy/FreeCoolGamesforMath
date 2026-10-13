@@ -1,6 +1,6 @@
 // Hangar: snap-build a rocket from parts (drag & drop or tap).
-import { PARTS, PART_ORDER, W, drawStack, drawPart, drawFins, drawStruts, drawLegs, legFootDrop, makeIcon, isRadialTarget, COL } from './parts.js';
-import { splitSections } from './physics.js';
+import { PARTS, PART_ORDER, W, drawStack, drawPart, drawFins, drawStruts, drawLegs, drawRadDec, legFootDrop, makeIcon, isRadialTarget, radialKey, DEFAULT_SIDE, FAIR_LEN, SIDE_DX, COL } from './parts.js?v=boost1';
+import { splitSections } from './physics.js?v=boost1';
 
 const MAX_PARTS = 16;
 
@@ -11,7 +11,10 @@ export class Builder {
     this.buildPalette(paletteEl);
     viewEl.addEventListener('pointerdown', (e) => this.viewDown(e));
   }
-  setStack(stack) { this.stack = stack.map((p) => ({ ...p })); this.sel = -1; this.changed(); }
+  setStack(stack) { this.stack = JSON.parse(JSON.stringify(stack)); this.sel = -1; this.changed(); }
+  // side booster / fairing options for the selected part
+  setSide(key, val) { const p = this.stack[this.sel]; if (!p || !p.side) return; p.side[key] = val; if (key === 'body' && PARTS[val].srb) p.side.eng = ''; if (key === 'body' && !PARTS[val].srb && !p.side.eng) p.side.eng = 'engS'; this.changed(); }
+  setFairing(key, val) { const p = this.stack[this.sel]; if (!p || p.type !== 'fairing') return; p[key] = val; this.changed(); }
   changed() { this.onChange && this.onChange(); }
 
   buildPalette(el) {
@@ -76,7 +79,7 @@ export class Builder {
 
   hitPart(x, y) {
     const L = this.layout; if (!L) return -1;
-    for (const p of L.parts) if (y >= p.y0 && y <= p.y1 && Math.abs(x - L.cx) <= (W / 2 + 0.8) * L.s) return p.i;
+    for (const p of L.parts) if (y >= p.y0 && y <= p.y1 && Math.abs(x - L.cx) <= (this.stack[p.i].side ? SIDE_DX + W / 2 + 0.2 : W / 2 + 0.8) * L.s) return p.i;
     return -1;
   }
   dropTarget(x, y, type) {
@@ -101,28 +104,39 @@ export class Builder {
   quickAdd(type) {
     const P = PARTS[type];
     if (P.radial) {
-      let i = this.sel >= 0 && isRadialTarget(this.stack[this.sel].type) && !this.stack[this.sel][type] ? this.sel : -1;
-      if (i < 0) for (let k = this.stack.length - 1; k >= 0; k--) if (isRadialTarget(this.stack[k].type) && !this.stack[k][type]) { i = k; break; }
-      if (i < 0) { this.toast(this.stack.some((p) => isRadialTarget(p.type)) ? `Every part already has ${type}.` : 'Add a tank or engine first, then attach this.'); return; }
+      const key = radialKey(type);
+      let i = this.sel >= 0 && isRadialTarget(this.stack[this.sel].type) && !this.stack[this.sel][key] ? this.sel : -1;
+      if (i < 0 && type === 'radDec') { // boosters: prefer the lowest tank
+        for (let k = this.stack.length - 1; k >= 0; k--) if (PARTS[this.stack[k].type].fuel && !this.stack[k].side) { i = k; break; }
+      }
+      if (i < 0) for (let k = this.stack.length - 1; k >= 0; k--) if (isRadialTarget(this.stack[k].type) && !this.stack[k][key]) { i = k; break; }
+      if (i < 0) { this.toast(this.stack.some((p) => isRadialTarget(p.type)) ? `Every part already has ${PARTS[type].name.toLowerCase()}.` : 'Add a tank or engine first, then attach this.'); return; }
       this.applyDrop(type, { kind: 'radial', index: i });
       return;
     }
     let idx;
-    if (type === 'capsule') idx = this.stack[0] && this.stack[0].type === 'chute' ? 1 : 0;
-    else if (type === 'chute') idx = 0;
+    const firstReal = () => { let k = 0; while (k < this.stack.length && (this.stack[k].type === 'chute' || PARTS[this.stack[k].type].nose)) k++; return k; };
+    if (PARTS[type].command) idx = firstReal();
+    else if (type === 'chute') idx = this.stack[0] && PARTS[this.stack[0].type].nose ? 1 : 0;
+    else if (PARTS[type].nose) idx = 0;
+    else if (type === 'fairing' && this.sel < 0) { const c = this.stack.findIndex((p) => PARTS[p.type].command); idx = c >= 0 ? c + 1 : 0; }
     else idx = this.sel >= 0 ? this.sel + 1 : this.stack.length;
     this.applyDrop(type, { kind: 'insert', index: idx });
   }
   applyDrop(type, over) {
     if (over.kind === 'radial') {
       const p = this.stack[over.index];
-      if (!p || !isRadialTarget(p.type)) { this.toast('Fins, struts and legs attach to tanks, engines or separators.'); return; }
-      if (p[type]) { this.toast(`That part already has ${type}.`); return; }
-      p[type] = 1; this.sel = over.index; this.changed();
+      if (!p || !isRadialTarget(p.type)) { this.toast('Fins, struts, legs and side boosters attach to tanks, engines or separators.'); return; }
+      const key = radialKey(type);
+      if (p[key]) { this.toast(`That part already has ${PARTS[type].name.toLowerCase()}.`); return; }
+      if (type === 'radDec') { p.side = { ...DEFAULT_SIDE }; this.toast('Side boosters added! Pick their parts in the right panel.'); }
+      else p[type] = 1;
+      this.sel = over.index; this.changed();
       return;
     }
+    if (type === 'fairing' && this.stack.some((p) => p.type === 'fairing')) { this.toast('Only one fairing per rocket.'); return; }
     if (this.stack.length >= MAX_PARTS) { this.toast(`Max ${MAX_PARTS} parts. Simpler rockets fly better!`); return; }
-    this.stack.splice(over.index, 0, { type });
+    this.stack.splice(over.index, 0, type === 'fairing' ? { type, shape: 'ogive', len: 2 } : { type });
     this.sel = over.index; this.changed();
   }
   removeAt(i) { if (i < 0 || i >= this.stack.length) return; this.stack.splice(i, 1); this.sel = Math.min(this.sel, this.stack.length - 1); if (this.sel === i) this.sel = -1; this.changed(); }
@@ -137,7 +151,9 @@ export class Builder {
   // --- render the hangar into the shared canvas
   render(ctx, t) {
     const r = this.viewEl.getBoundingClientRect();
-    const total = this.stack.reduce((a, p) => a + PARTS[p.type].h, 0);
+    const total0 = this.stack.reduce((a, p) => a + PARTS[p.type].h, 0);
+    const fp = this.stack.find((p) => p.type === 'fairing');
+    const total = total0 + (fp ? FAIR_LEN[fp.len || 2].ext + (fp.shape === 'bulb' ? 0.4 : 0) : 0);
     const s = Math.min((r.height - 150) / Math.max(total + 1, 9), 46);
     const cx = r.left + r.width / 2, by = r.bottom - 46;
     // backdrop: graph-paper hangar wall
@@ -168,7 +184,7 @@ export class Builder {
     }
     // layout
     const rb = by - legFootDrop(this.stack) * s;
-    const parts = []; const bounds = []; let y = rb - total * s;
+    const parts = []; const bounds = []; let y = rb - total0 * s;
     bounds.push(y);
     this.stack.forEach((p, i) => { const h = PARTS[p.type].h * s; parts.push({ i, y0: y, y1: y + h }); y += h; bounds.push(y); });
     this.layout = { s, cx, by, parts, bounds };
@@ -185,16 +201,17 @@ export class Builder {
       ctx.font = '700 12px system-ui, sans-serif'; ctx.textAlign = 'left';
       secs.forEach((sec, si) => {
         const top = parts[k].y0, bot = parts[k + sec.length - 1].y1; k += sec.length;
-        const bx = cx + (W / 2 + 1.1) * s;
+        const withSides = sec.some((p) => p.side) || (si === nSec - 1 && this.stack.some((p) => p.side));
+        const bx = cx + (withSides ? SIDE_DX + W / 2 + 0.5 : W / 2 + 1.1) * s;
         ctx.strokeStyle = 'rgba(93,255,176,0.8)'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(bx, top + 3); ctx.lineTo(bx + 8, top + 3); ctx.lineTo(bx + 8, bot - 3); ctx.lineTo(bx, bot - 3); ctx.stroke();
-        ctx.fillStyle = '#5dffb0'; ctx.fillText(`Stage ${nSec - si}`, bx + 13, (top + bot) / 2 + 4);
+        ctx.fillStyle = '#5dffb0'; ctx.fillText(`Stage ${nSec - si}${si === nSec - 1 && this.stack.some((p) => p.side) ? ' + side boosters' : ''}`, bx + 13, (top + bot) / 2 + 4);
       });
     }
     // rocket
     const dr = this.drag;
     ctx.save(); ctx.translate(cx, rb); ctx.scale(s, s);
-    drawStack(ctx, this.stack, { lw: 1.6 / s, highlight: this.sel, target: dr && dr.moving && dr.over && dr.over.kind === 'radial' ? dr.over.index : undefined });
+    drawStack(ctx, this.stack, { lw: 1.6 / s, fairingAlpha: 0.72, highlight: this.sel, target: dr && dr.moving && dr.over && dr.over.kind === 'radial' ? dr.over.index : undefined });
     ctx.restore();
     // drag feedback
     if (dr && dr.moving) {
@@ -210,7 +227,7 @@ export class Builder {
       ctx.save(); ctx.globalAlpha = 0.75; ctx.translate(dr.x, dr.y); ctx.scale(s, s);
       const h = P.radial ? 1.6 : P.h;
       ctx.translate(0, -h / 2);
-      if (dr.type === 'fins') drawFins(ctx, h, 1.6 / s); else if (dr.type === 'legs') drawLegs(ctx, h, 1.6 / s, 1); else if (dr.type === 'struts') drawStruts(ctx, h, 1.6 / s); else drawPart(ctx, dr.type, 1.6 / s);
+      if (dr.type === 'radDec') drawRadDec(ctx, h, 1.6 / s); else if (dr.type === 'fins') drawFins(ctx, h, 1.6 / s); else if (dr.type === 'legs') drawLegs(ctx, h, 1.6 / s, 1); else if (dr.type === 'struts') drawStruts(ctx, h, 1.6 / s); else drawPart(ctx, dr.type, 1.6 / s);
       ctx.restore();
       if (dr.from >= 0 && !dr.over) {
         ctx.fillStyle = '#ef476f'; ctx.font = '700 14px system-ui, sans-serif'; ctx.textAlign = 'center';

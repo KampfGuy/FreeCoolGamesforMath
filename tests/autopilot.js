@@ -113,3 +113,28 @@ export function* moonMission(f, { home = false, log = () => {} } = {}) {
   while (f.state === 'flying') { setWarp(f.alt > PLANET.atm ? 3 : 1); yield* tick(); }
   log(`Home: state=${f.state} safe=${f.stats.landedSafe} back=${f.stats.landedLumoBeforeHome} reason=${f.endReason}`);
 }
+
+// Ascent to a low circular orbit, handling side boosters (drop when empty), stages and the fairing.
+export function* orbitMission(f, { log = () => {}, peTarget = 40000, fairingAlt = 40000 } = {}) {
+  const dt = 1 / 30;
+  const up = () => Math.atan2(f.py, f.px);
+  const autoStage = () => {
+    if (!f.ignited) return;
+    if (f.boosters.length && f.boosters.every((b) => b.side.fuel <= 1e-6 && b.side.sf <= 1e-6)) { log(`boosters out at alt ${Math.round(f.alt)} t=${f.t.toFixed(1)}`); f.stage(); return; }
+    if (!f.boosters.length && f.bottom.fuel <= 1e-6 && !f.bottom.parts.some((p) => p.sf > 0) && f.sections.length > 1 && f.throttle > 0) { log(`stage at alt ${Math.round(f.alt)}`); f.stage(); }
+    if (f.hasFairing && f.alt > fairingAlt) { log(`fairing at alt ${Math.round(f.alt)}`); f.jettisonFairing(); }
+  };
+  const tick = function* () { f.update(dt); autoStage(); yield; };
+  f.stage(); f.throttle = 1;
+  while (f.state === 'flying') {
+    const alt = f.alt, pitch = Math.min(1, Math.sqrt(Math.max(0, alt - 500) / 22000)) * (Math.PI / 2) * 0.97;
+    f.aim = up() + pitch;
+    if (!f.onGround && f.orbit.ap > peTarget + 15000) break;
+    yield* tick();
+  }
+  f.throttle = 0; f.aim = null; f.hold = 'pro'; log('MECO, Ap ' + Math.round(f.orbit.ap));
+  while (f.state === 'flying') { const r = Math.hypot(f.px, f.py), vr = (f.vx * f.px + f.vy * f.py) / r; if (vr < 2 && f.alt > PLANET.atm) break; f.warpIdx = f.alt > PLANET.atm ? 4 : 3; yield* tick(); }
+  f.warpIdx = 0; f.throttle = 1;
+  while (f.state === 'flying' && f.orbit.pe < peTarget && f.fuelTotal > 1e-6) yield* tick();
+  f.throttle = 0; log(`orbit Pe ${Math.round(f.orbit.pe)} Ap ${Math.round(f.orbit.ap)} t=${Math.round(f.t)}`);
+}
