@@ -38,6 +38,7 @@
         <button data-act="back">◀ Missions</button>
         <button data-act="ex1">Example: Hopper</button>
         <button data-act="ex2">Example: Orbiter</button>
+        <button data-act="ex3">Example: Moon Lander</button>
         <button data-act="clear">Clear</button>
         <button data-act="help">?</button>
       </div>
@@ -56,6 +57,7 @@
 
   <section id="scr-flight" class="screen">
     <div id="hud-l" class="panel hud">
+      <div class="row"><b>Orbiting</b><span id="h-body"></span></div>
       <div class="row"><b>Altitude</b><span id="h-alt"></span></div>
       <div class="row"><b>Speed</b><span id="h-spd"></span></div>
       <div class="row"><b>Up / down</b><span id="h-vs"></span></div>
@@ -87,6 +89,7 @@
       <button class="ctl stage" id="b-stage" title="Stage (Space)">STAGE<small>Space</small></button>
       <button id="b-hold" title="Auto-point mode (H)">Point: Free<small>H</small></button>
       <button id="b-chute" title="Arm parachute (P)">Chute<small>P</small></button>
+      <button id="b-legs" title="Landing legs (G)">Legs<small>G</small></button>
       <button id="b-map" title="Map (M)">Map<small>M</small></button>
       <button id="b-warp" title="Time warp (, and .)">×1<small>Warp</small></button>
       <button id="b-zin" title="Zoom in (+)">+</button>
@@ -113,7 +116,7 @@
         <h3>1 · Build</h3>
         <p>Drag parts from the left onto the rocket; they snap into place. Put the <b>Pilot Capsule</b> on top. Tanks hold fuel, engines burn it. A <b>Stage Separator</b> splits the rocket into stages; press STAGE to drop the empty bottom part. Drag <b>fins</b> or <b>struts</b> onto a tank or engine.</p>
         <h3>2 · Fly</h3>
-        <p><b>Space</b> / STAGE = start engines, then drop stages. <b>W/S</b> or <b>↑/↓</b> = throttle (<b>Z</b> max, <b>X</b> zero). <b>A/D</b> or <b>←/→</b> = turn. Or hold the mouse / trackpad on the screen to point that way. <b>H</b> = auto-point, <b>M</b> = map, <b>P</b> = parachute, <b>,</b> <b>.</b> = time warp, <b>Esc</b> = pause. Two-finger scroll zooms.</p>
+        <p><b>Space</b> / STAGE = start engines, then drop stages. <b>W/S</b> or <b>↑/↓</b> = throttle (<b>Z</b> max, <b>X</b> zero). <b>A/D</b> or <b>←/→</b> = turn. Or hold the mouse / trackpad on the screen to point that way. <b>H</b> = auto-point, <b>M</b> = map, <b>P</b> = parachute, <b>G</b> = landing legs, <b>,</b> <b>.</b> = time warp (up to ×5000 when coasting in space), <b>Esc</b> = pause. Two-finger scroll zooms.</p>
         <h3>3 · Orbit trick</h3>
         <p>Fly up to about 8–10 km, then tip over sideways. Watch the <b>Sideways</b> speed climb toward <b>Circle speed</b>. When your low point (Pe) is above 30 km, you're in orbit!</p>
       </div>
@@ -124,7 +127,8 @@
         <p><b>Isp</b> = how efficient an engine is (bigger is better). Engines are a bit weaker in thick air.</p>
         <p><b>Circle speed</b> = √(μ ÷ r): how fast you must go sideways to keep falling <i>around</i> the planet instead of into it. On Numeria that's about 1,600 m/s.</p>
         <p><b>Ap / Pe</b> = the highest and lowest points of your path.</p>
-        <p><b>Soft landing:</b> touch down under 10 m/s (12 on water). Parachutes help!</p>
+        <p><b>Soft landing:</b> touch down under 10 m/s (12 on water). Parachutes help! <b>Landing legs</b> (G) let you land up to 12 m/s straight down, tilted up to 15°.</p>
+        <p><b>Sphere of influence (SOI)</b> = r = a × (m ÷ M)<sup>2/5</sup>: the bubble where a body's gravity is the one that counts. Inside Lumo's SOI (≈505 km) you orbit Lumo; outside Numeria's (≈11,900 km) you orbit the star Ember.</p>
       </div>
     </div>
     <button class="big primary" data-act="closehelp">Got it</button>

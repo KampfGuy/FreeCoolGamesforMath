@@ -1,0 +1,12 @@
+import { Flight } from '../js/flight.js';
+import { moonMission } from './autopilot.js';
+const EX_MOON = [{ type: 'chute' }, { type: 'capsule' }, { type: 'tankM' }, { type: 'engV', legs: 1 }, { type: 'dec' }, { type: 'tankL', struts: 1 }, { type: 'engV' }, { type: 'dec' }, { type: 'tankL', struts: 1 }, { type: 'tankL' }, { type: 'engB', fins: 1 }];
+const f = new Flight(EX_MOON);
+const home = process.argv.includes('--home');
+const it = moonMission(f, { home, log: (m) => console.log('  ' + m) });
+let n = 0; while (!it.next().done && n++ < 2e6);
+const evs = f.events.map((e) => e.msg); 
+console.log(evs.filter((m) => /sphere|Touchdown|Crunch|ORBIT/.test(m)).join('\n'));
+const ok = f.stats.soi.lumo && f.stats.landedLumo && (!home || f.stats.landedLumoBeforeHome);
+console.log(ok ? 'PASS: Example Moon Lander reached Lumo SOI and landed' + (home ? ' and came home' : '') : 'FAIL');
+process.exit(ok ? 0 : 1);

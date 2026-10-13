@@ -15,9 +15,10 @@ export const PARTS = {
   engV: { name: 'Space Engine', cat: 'Engines', mass: 0.4, thrust: 55, ispAtm: 160, ispVac: 345, cost: 360, h: 1.5, blurb: 'Push 55 kN · best in space, Isp 345 s' },
   dec: { name: 'Stage Separator', cat: 'Structure', mass: 0.05, cost: 50, h: 0.35, blurb: 'STAGE drops everything below it.' },
   fins: { name: 'Fins (pair)', cat: 'Structure', radial: true, mass: 0.06, cost: 40, blurb: 'Attach to a part. Keeps you pointed forward in air.' },
+  legs: { name: 'Landing Legs', cat: 'Structure', radial: true, mass: 0.05, cost: 60, blurb: 'Attach to the bottom part. Press G to deploy: safe landing up to 12 m/s and 15° tilt.' },
   struts: { name: 'Struts (pair)', cat: 'Structure', radial: true, mass: 0.02, cost: 25, blurb: 'Attach to a part. Each pair stiffens 4 more parts.' },
 };
-export const PART_ORDER = ['capsule', 'chute', 'tankS', 'tankM', 'tankL', 'engS', 'engB', 'engV', 'dec', 'fins', 'struts'];
+export const PART_ORDER = ['capsule', 'chute', 'tankS', 'tankM', 'tankL', 'engS', 'engB', 'engV', 'dec', 'fins', 'struts', 'legs'];
 export const isEngine = (t) => !!PARTS[t].thrust;
 export const isRadialTarget = (t) => t !== 'capsule' && t !== 'chute';
 export const stackHeight = (parts) => parts.reduce((a, p) => a + PARTS[p.type].h, 0);
@@ -118,6 +119,36 @@ export function drawStruts(ctx, h, lw) {
   }
 }
 
+// Folding landing legs: hinge near the part's bottom; f = 0 folded up along the side, 1 = deployed.
+export const LEG_L = 1.2, LEG_DROP = 0.6; // deployed feet reach LEG_DROP m below the part bottom
+export function drawLegs(ctx, h, lw, f = 1) {
+  const hw = W / 2, hy = h - 0.1;
+  const thD = Math.acos((LEG_DROP + 0.1) / LEG_L), th = Math.PI - 0.08 + (thD - (Math.PI - 0.08)) * f;
+  for (const s of [-1, 1]) {
+    const hx = s * (hw + 0.06);
+    const fx = hx + s * Math.sin(th) * LEG_L, fy = hy + Math.cos(th) * LEG_L;
+    const mx = hx + s * Math.sin(th) * LEG_L * 0.55, my = hy + Math.cos(th) * LEG_L * 0.55;
+    ctx.lineCap = 'round';
+    // brace from higher up on the body to the leg's middle
+    ctx.beginPath(); ctx.moveTo(s * hw, hy - 0.55); ctx.lineTo(mx, my);
+    ctx.strokeStyle = COL.line; ctx.lineWidth = 0.1 + lw * 2; ctx.stroke(); ctx.strokeStyle = COL.steel; ctx.lineWidth = 0.08; ctx.stroke();
+    // main leg
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(fx, fy);
+    ctx.strokeStyle = COL.line; ctx.lineWidth = 0.18 + lw * 2; ctx.stroke(); ctx.strokeStyle = COL.yellow; ctx.lineWidth = 0.16; ctx.stroke();
+    // hinge + foot pad
+    ctx.beginPath(); ctx.arc(hx, hy, 0.1, 0, TAU); ctx.fillStyle = COL.dark; ctx.fill();
+    ctx.save(); ctx.translate(fx, fy); ctx.rotate(-s * (th - thD) * 0.5);
+    rrect(ctx, -0.22, -0.04, 0.44, 0.1, 0.04); ctx.fillStyle = COL.dark; ctx.fill(); ctx.lineWidth = lw; ctx.strokeStyle = COL.line; ctx.stroke();
+    ctx.restore();
+  }
+}
+// How far (m) deployed feet stick out below the stack bottom (0 if legs are not low enough).
+export function legFootDrop(parts) {
+  let below = 0;
+  for (let i = parts.length - 1; i >= 0; i--) { if (parts[i].legs) return Math.max(0, LEG_DROP - below); below += PARTS[parts[i].type].h; }
+  return 0;
+}
+
 function drawCanopy(ctx, f, lw) {
   const cw = 3.2 * f + 0.4, top = -(1.2 + 3.6 * f);
   ctx.strokeStyle = 'rgba(30,30,50,0.75)'; ctx.lineWidth = lw;
@@ -157,6 +188,7 @@ export function drawStack(ctx, parts, o = {}) {
     ctx.translate(0, -h);
     if (p.struts) drawStruts(ctx, h, lw);
     if (p.fins) drawFins(ctx, h, lw);
+    if (p.legs) drawLegs(ctx, h, lw, o.legs == null ? 1 : o.legs);
     drawPart(ctx, p.type, lw);
     if (o.highlight === i) {
       rrect(ctx, -W / 2 - 0.2, -0.12, W + 0.4, h + 0.24, 0.18);
@@ -183,7 +215,7 @@ export function makeIcon(type, size = 52) {
   ctx.translate(size / 2, size / 2 - (h * s) / 2); ctx.scale(s, s);
   const lw = 1.2 / s;
   if (P.radial) {
-    if (type === 'fins') drawFins(ctx, h, lw); else drawStruts(ctx, h, lw);
+    if (type === 'fins') drawFins(ctx, h, lw); else if (type === 'legs') drawLegs(ctx, h, lw, 1); else drawStruts(ctx, h, lw);
     ctx.globalAlpha = 0.35; tankBody(ctx, h, lw); ctx.globalAlpha = 1;
   } else drawPart(ctx, type, lw);
   return c;

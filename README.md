@@ -12,7 +12,10 @@ Progress and rocket designs are saved only in the browser (`localStorage`).
 - **Flight:** launch pad, throttle, steering, staging (dropped stages fall away), fuel burn, drag, parachutes, crash or soft landing,
   2D orbital physics around the small planet *Numeria*. Map view shows your path with **Ap/Pe** (high and low points).
   The HUD compares your *sideways speed* to the *circle speed* √(μ/r) needed to stay in orbit.
-- **Missions:** First Hop (5 km), Edge of Space (30 km), Make an Orbit, Round Trip (space + soft landing), Free Flight. Up to 3 stars each (goal, under budget, bonus).
+- **Missions:** First Hop (5 km), Edge of Space (30 km), Make an Orbit, Round Trip (space + soft landing), Moon Flyby (enter Lumo's SOI), Moon Landing, Moon and Back, Escape (orbit the star Ember), Free Flight. Up to 3 stars each (goal, under budget, bonus).
+- **Solar system (patched conics):** the star **Ember**, planet **Numeria** (R 300 km, 30 km of air) and its moon **Lumo** (R 80 km, 1.6 m/s², no air, orbit 3,000 km, period ≈ 9.7 h). Each body has a sphere of influence r = a·(m/M)^(2/5) (Lumo ≈ 505 km, Numeria ≈ 11,900 km); the rocket only feels the body whose SOI it is in, and its state is converted when it crosses. Map view shows SOIs, the predicted path and an *Encounter: Lumo* marker.
+- **Landing Legs** (radial part, G to deploy): safe touchdowns up to 12 m/s down, 5 m/s sideways, 15° tilt.
+- **Time warp** ×1…×5000 while coasting in space (×5 max while burning, ×10 in the air; auto-lowered near the ground).
 
 ## Controls (keyboard + trackpad)
 | Action | Keys / mouse |
@@ -26,6 +29,10 @@ Progress and rocket designs are saved only in the browser (`localStorage`).
 | Time warp | **,** and **.** |
 | Zoom | two-finger scroll, **+ / −** |
 | Pause | **Esc** |
+
+## Tests
+
+`npm test` (Node 20+, no dependencies): physics checks (SOI formula, frame-change continuity, landing rules, legs) and a full autopilot flight of *Example: Moon Lander* from the pad to Lumo and back home (`tests/autopilot.js`). The page exposes `window.__fcgm` (incl. `teleport({ body, alt, circular })`) for headless browser tests. `python3 tools/build.py` regenerates the single-file `FreeCoolGamesforMath.html`.
 
 ## Tech
 Plain HTML/CSS/JavaScript (ES modules) with a 2D canvas. No frameworks, no build step, no WebGL/WebGPU needed.

@@ -1,5 +1,5 @@
 // Hangar: snap-build a rocket from parts (drag & drop or tap).
-import { PARTS, PART_ORDER, W, drawStack, drawPart, drawFins, drawStruts, makeIcon, isRadialTarget, COL } from './parts.js';
+import { PARTS, PART_ORDER, W, drawStack, drawPart, drawFins, drawStruts, drawLegs, legFootDrop, makeIcon, isRadialTarget, COL } from './parts.js';
 import { splitSections } from './physics.js';
 
 const MAX_PARTS = 16;
@@ -116,7 +116,7 @@ export class Builder {
   applyDrop(type, over) {
     if (over.kind === 'radial') {
       const p = this.stack[over.index];
-      if (!p || !isRadialTarget(p.type)) { this.toast('Fins and struts attach to tanks, engines or separators.'); return; }
+      if (!p || !isRadialTarget(p.type)) { this.toast('Fins, struts and legs attach to tanks, engines or separators.'); return; }
       if (p[type]) { this.toast(`That part already has ${type}.`); return; }
       p[type] = 1; this.sel = over.index; this.changed();
       return;
@@ -167,7 +167,8 @@ export class Builder {
       ctx.fillText(`Height ${total.toFixed(1)} m`, rx + 14, by - total * s + 4);
     }
     // layout
-    const parts = []; const bounds = []; let y = by - total * s;
+    const rb = by - legFootDrop(this.stack) * s;
+    const parts = []; const bounds = []; let y = rb - total * s;
     bounds.push(y);
     this.stack.forEach((p, i) => { const h = PARTS[p.type].h * s; parts.push({ i, y0: y, y1: y + h }); y += h; bounds.push(y); });
     this.layout = { s, cx, by, parts, bounds };
@@ -192,7 +193,7 @@ export class Builder {
     }
     // rocket
     const dr = this.drag;
-    ctx.save(); ctx.translate(cx, by); ctx.scale(s, s);
+    ctx.save(); ctx.translate(cx, rb); ctx.scale(s, s);
     drawStack(ctx, this.stack, { lw: 1.6 / s, highlight: this.sel, target: dr && dr.moving && dr.over && dr.over.kind === 'radial' ? dr.over.index : undefined });
     ctx.restore();
     // drag feedback
@@ -209,7 +210,7 @@ export class Builder {
       ctx.save(); ctx.globalAlpha = 0.75; ctx.translate(dr.x, dr.y); ctx.scale(s, s);
       const h = P.radial ? 1.6 : P.h;
       ctx.translate(0, -h / 2);
-      if (dr.type === 'fins') drawFins(ctx, h, 1.6 / s); else if (dr.type === 'struts') drawStruts(ctx, h, 1.6 / s); else drawPart(ctx, dr.type, 1.6 / s);
+      if (dr.type === 'fins') drawFins(ctx, h, 1.6 / s); else if (dr.type === 'legs') drawLegs(ctx, h, 1.6 / s, 1); else if (dr.type === 'struts') drawStruts(ctx, h, 1.6 / s); else drawPart(ctx, dr.type, 1.6 / s);
       ctx.restore();
       if (dr.from >= 0 && !dr.over) {
         ctx.fillStyle = '#ef476f'; ctx.font = '700 14px system-ui, sans-serif'; ctx.textAlign = 'center';
