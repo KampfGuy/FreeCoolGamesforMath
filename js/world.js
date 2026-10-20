@@ -1,7 +1,7 @@
 // The world: many craft (vessels) sharing one clock. The active vessel is flown with full physics;
 // the others move "on rails" (Kepler orbits around the body whose SOI they are in), landed ones stay put.
-import { Flight, terrainAt } from './flight.js?v=fleet1';
-import { BODIES, orbitOf, soiCheck, convertFrame, density, keplerStep, landingResult } from './physics.js?v=fleet1';
+import { Flight, terrainAt } from './flight.js?v=mp1';
+import { BODIES, orbitOf, soiCheck, convertFrame, density, keplerStep, landingResult } from './physics.js?v=mp1';
 
 export const DEBRIS_CAP = 30;
 const NAME_PREFIX = { Rocket: 'Rocket', Satellite: 'Sat', Lander: 'Lander', Probe: 'Probe', Station: 'Station', Capsule: 'Capsule', Debris: 'Debris' };

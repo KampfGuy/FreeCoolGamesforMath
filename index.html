@@ -9,8 +9,8 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="theme-color" content="#0b1236">
-<meta name="fcgm-version" content="fleet1">
-<link rel="stylesheet" href="css/style.css?v=fleet1">
+<meta name="fcgm-version" content="mp1">
+<link rel="stylesheet" href="css/style.css?v=mp1">
 </head>
 <body>
 <canvas id="cv" aria-label="Game view"></canvas>
@@ -21,16 +21,46 @@
       <p class="tag">Build a rocket. Do the math. Fly it to orbit.</p>
       <div class="title-btns">
         <button class="big primary" data-go="missions">▶ Play</button>
+        <button class="big" data-go="mp" id="b-mp">👥 Multiplayer</button>
         <button class="big" data-go="tracking">🛰️ Tracking</button>
         <button class="big" data-go="help">How to play</button>
       </div>
-      <p class="fine">No ads · No accounts · No chat · Works offline</p>
+      <p class="fine">No ads · No accounts · Works offline · Multiplayer is optional</p>
     </div>
   </section>
 
   <section id="scr-missions" class="screen">
     <header class="bar"><button data-go="title">◀ Back</button><h2>Pick a mission</h2><span class="grow"></span><button data-go="tracking">🛰️ Tracking</button><span id="star-total" class="pill"></span></header>
     <div id="mission-list" class="cards"></div>
+  </section>
+
+  <section id="scr-mp" class="screen">
+    <header class="bar"><button data-go="title" id="mp-back">◀ Back</button><h2>Multiplayer</h2><span id="mp-code-pill" class="pill" hidden></span><span class="grow"></span><span id="mp-net" class="mp-net"></span></header>
+    <div class="mp-wrap">
+      <div id="mp-setup" class="panel mp-card">
+        <h3>Your pilot</h3>
+        <label class="mp-lbl">Nickname <input id="mp-name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Pilot"></label>
+        <div class="mp-lbl">Color <div id="mp-colors" class="chips"></div></div>
+        <div class="mp-split">
+          <div><h3>Host a game</h3><p class="mg">Get a room code and share it with up to 5 friends.</p><button id="mp-host" class="big primary">🛸 Host Game</button></div>
+          <div><h3>Join a game</h3><p class="mg">Type the 5-letter code from the host.</p>
+            <div class="mp-join"><input id="mp-code" maxlength="5" autocomplete="off" spellcheck="false" placeholder="CODE" aria-label="Room code"><button id="mp-join" class="big primary">Join Game</button></div></div>
+        </div>
+        <p class="fine">Peer-to-peer: your browser talks straight to the others (the free PeerJS service only helps you find each other). Chat is filtered. Be kind!</p>
+      </div>
+      <div id="mp-lobby" class="mp-lobby" hidden>
+        <div class="panel mp-card">
+          <h3>Room code</h3><div id="mp-code-big" class="mp-code-big"></div>
+          <h3>Players <span id="mp-count"></span></h3><ul id="mp-players" class="mp-players"></ul>
+          <div class="row-btns"><button id="mp-fly" class="big primary">🚀 Pick a mission &amp; fly</button><button id="mp-leave" class="big">Leave</button></div>
+          <div id="mp-race-host" hidden><h3>Race mode (host)</h3><div class="mp-join"><select id="mp-race-pick" aria-label="Race mission"></select><button id="mp-race-go" class="primary">🏁 Start race</button></div>
+            <p class="mg small">Everyone jumps to the hangar of that mission. First to finish wins. The host controls time warp.</p></div>
+          <div id="mp-race-board"></div>
+        </div>
+        <div class="panel mp-card mp-chatcard"><h3>Chat</h3><div id="mp-chat-log" class="mp-log"></div>
+          <form id="mp-chat-form" class="mp-join"><input id="mp-chat-in" maxlength="140" autocomplete="off" placeholder="Say something nice…" aria-label="Chat message"><button class="primary">Send</button></form></div>
+      </div>
+    </div>
   </section>
 
   <section id="scr-tracking" class="screen">
@@ -117,6 +147,11 @@
     </div>
   </section>
 
+  <div id="mp-hud" class="panel" hidden>
+    <div class="mp-hh"><b>👥 <span id="mp-hud-code"></span></b><span id="mp-hud-warp" class="mp-warp"></span><button id="mp-hud-min" title="Show / hide (T)">▾</button></div>
+    <div id="mp-hud-body"><ul id="mp-hud-players" class="mp-players small"></ul><div id="mp-hud-race"></div><div id="mp-hud-log" class="mp-log"></div>
+    <form id="mp-hud-form" class="mp-join"><input id="mp-hud-in" maxlength="140" autocomplete="off" placeholder="Chat (Enter)" aria-label="Chat message"><button>Send</button></form></div>
+  </div>
   <div id="ov-results" class="overlay"><div class="dlg"></div></div>
   <div id="ov-pause" class="overlay"><div class="dlg">
     <h2>Paused</h2>
@@ -127,6 +162,7 @@
       <button class="big" data-act="relaunch">Restart flight</button>
       <button class="big" data-act="tohangar">Back to hangar</button>
       <button class="big" data-act="help">How to play</button>
+      <button class="big" data-act="mplobby" hidden>👥 Multiplayer lobby</button>
     </div>
   </div></div>
   <div id="ov-help" class="overlay"><div class="dlg wide">
@@ -141,6 +177,8 @@
         <b>Nose cones</b> (optional) cut drag on top of the rocket or a booster. A <b>Fairing</b> goes <i>under</i> your payload and covers it; pick Ogive, Cone, Bullet or Bulbous. Press <b>F</b> to split it off in space.</p>
         <h3>Many craft</h3>
         <p>A <b>Payload Separator</b> goes under a satellite or lander: press <b>R</b> (Release) and it flies off as its own craft. A dropped stage with a probe core or capsule also becomes its own craft. Switch craft with <b>[</b> and <b>]</b> or the <b>Vessels</b> list (<b>V</b>). Probe core + <b>Antenna</b> + <b>Solar Panels</b> = a Satellite; command + engine + legs = a Lander. In <b>Sandbox World</b> choose <b>Leave in space</b> and your craft stay up there while you launch more. See them all in <b>Tracking</b>.</p>
+        <h3>Multiplayer</h3>
+        <p>Main menu → <b>Multiplayer</b>. One player hosts and shares the 5-letter code; up to 6 pilots. Everyone's rocket shows in the sky and on the map. The <b>host</b> controls time warp, and warp only goes up when every pilot can warp. <b>Enter</b> = chat, <b>T</b> = hide the player panel. In multiplayer, pausing doesn't stop time.</p>
         <h3>2 · Fly</h3>
         <p><b>Space</b> / STAGE = start engines, then drop stages. <b>W/S</b> or <b>↑/↓</b> = throttle (<b>Z</b> max, <b>X</b> zero). <b>A/D</b> or <b>←/→</b> = turn. Or hold the mouse / trackpad on the screen to point that way. <b>H</b> = auto-point, <b>M</b> = map, <b>P</b> = parachute, <b>G</b> = landing legs, <b>F</b> = open fairing, <b>,</b> <b>.</b> = time warp (up to ×5000 when coasting in space), <b>Esc</b> = pause. Two-finger scroll zooms.</p>
         <h3>3 · Orbit trick</h3>
@@ -164,6 +202,6 @@
   <div id="toasts" aria-live="polite"></div>
 </div>
 <noscript><p style="color:#fff;padding:2em">This game needs JavaScript turned on.</p></noscript>
-<script type="module" src="js/main.js?v=fleet1"></script>
+<script type="module" src="js/main.js?v=mp1"></script>
 </body>
 </html>

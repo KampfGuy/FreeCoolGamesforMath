@@ -1,6 +1,6 @@
 // Hangar: snap-build a rocket from parts (drag & drop or tap).
-import { PARTS, PART_ORDER, W, drawStack, drawPart, drawFins, drawStruts, drawLegs, drawRadDec, drawSolar, legFootDrop, makeIcon, isRadialTarget, radialKey, DEFAULT_SIDE, FAIR_LEN, SIDE_DX, COL } from './parts.js?v=fleet1';
-import { splitSections } from './physics.js?v=fleet1';
+import { PARTS, PART_ORDER, W, drawStack, drawPart, drawFins, drawStruts, drawLegs, drawRadDec, drawSolar, legFootDrop, makeIcon, isRadialTarget, radialKey, DEFAULT_SIDE, FAIR_LEN, SIDE_DX, COL } from './parts.js?v=mp1';
+import { splitSections } from './physics.js?v=mp1';
 
 const MAX_PARTS = 20;
 

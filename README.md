@@ -90,3 +90,18 @@ MIT © 2026 Kampf Kaiser
 - New missions: Deploy a Satellite, Moon Lander Drop, Constellation, Sandbox World. Examples: Satellite Launcher, Lander Carrier.
 
 ![Satellite deploying](docs/fleet-satellite-deploying.png) ![Map with several craft](docs/fleet-map-multiple.png) ![Tracking](docs/fleet-tracking.png)
+
+## Multiplayer (mp1)
+
+Main menu → **👥 Multiplayer**. Peer-to-peer WebRTC through [PeerJS](https://peerjs.com) (loaded from unpkg, jsdelivr fallback, only when you open Multiplayer) and the free public PeerJS broker. No server of our own.
+
+- **Host Game** gives a 5-character room code (PeerJS id `fcgm-<CODE>`). **Join Game** takes the code. Up to 6 pilots, each with a nickname and color.
+- In flight every pilot's active craft shows in the sky (parts silhouette + name label) and on the map (colored marker + orbit). State goes out 10×/s; between updates it's moved along its orbit and smoothed.
+- The host owns the shared clock. Only the host changes time warp, and warp only goes up when every flying pilot can warp safely (engines off, out of the air). Clients' clocks are pulled gently onto the host's, never jumped. Pausing doesn't stop time in multiplayer.
+- Chat (lobby + in-flight panel, **Enter** to type, **T** hides the panel) with a light word filter and rate limit. Join/leave/timeout toasts. Clients try to rejoin 3 times if the host drops.
+- **Race mode**: the host picks a mission, everyone goes to that hangar, finish times and costs go on a results board.
+- Not connected = single-player exactly as before. Multiplayer flights use a fresh shared-clock world, not your saved Sandbox world.
+
+Tests: `node tests/mp.test.js` (codes, filter). `FAKE=1 python3 tests/mp_e2e.py` runs two browser pages against a local server (`python3 -m http.server 8765`). FAKE=1 swaps PeerJS for a BroadcastChannel stand-in for sandboxes where WebRTC can't gather ICE candidates.
+
+Screenshots: `docs/mp-menu.png`, `docs/mp-lobby.png`, `docs/mp-flight-two-players.png`, `docs/mp-flight-joiner-view.png`, `docs/mp-map-both.png`, `docs/mp-chat-in-flight.png`, `docs/mp-race-results.png`.

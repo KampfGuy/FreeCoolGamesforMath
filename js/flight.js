@@ -1,6 +1,6 @@
 // Flight simulation (2D patched-conic orbital mechanics: star Ember, planet Numeria, moon Lumo) + rendering.
-import { PARTS, W, TAU, G0, drawStack, COL, legFootDrop, boosterParts, SIDE_DX, FAIR_LEN, drawFairingShell, fairShellMass } from './parts.js?v=fleet1';
-import { PLANET, BODIES, density, splitSections, sectionInfo, orbitOf, circleSpeed, stiffLimit, relState, localState, convertFrame, soiCheck, landingResult, sideBoosters, boosterWet, boosterInfo, dragFactor, planDv, srbFuel, classifyParts } from './physics.js?v=fleet1';
+import { PARTS, W, TAU, G0, drawStack, COL, legFootDrop, boosterParts, SIDE_DX, FAIR_LEN, drawFairingShell, fairShellMass } from './parts.js?v=mp1';
+import { PLANET, BODIES, density, splitSections, sectionInfo, orbitOf, circleSpeed, stiffLimit, relState, localState, convertFrame, soiCheck, landingResult, sideBoosters, boosterWet, boosterInfo, dragFactor, planDv, srbFuel, classifyParts } from './physics.js?v=mp1';
 
 export const WARPS = [1, 2, 5, 10, 50, 500, 5000];
 const WARP_BURN = 2, WARP_AIR = 3; // max warp index while burning / on the ground, and inside the air
@@ -23,6 +23,7 @@ const T_LOCAL = (r, b) => TAU * Math.sqrt((r * r * r) / b.mu);
 
 const SAVE_KEYS = ['id', 'name', 'vtype', 'autoName', 'body', 'px', 'py', 'vx', 'vy', 'heading', 'onGround', 'leftGround', 'state', 'legsDown', 'chuteArmed', 'chute', 't', 't0', 'stats', 'released', 'mission', 'endReason'];
 export class Flight {
+  static overlay = null; // multiplayer drawing hook (null in single player)
   constructor(stack, o = {}) {
     const copy = (stack || []).map((p) => {
       const q = { ...p };
@@ -597,6 +598,7 @@ export class Flight {
       ctx.restore();
       if (v.vtype !== 'Debris') labels.push([dx + Math.cos(v.heading) * (v.height + 2), dy + Math.sin(v.heading) * (v.height + 2), v.name]);
     }
+    if (Flight.overlay) Flight.overlay.drawWorld(ctx, this, { cx, cy, s, viewR, labels }); // multiplayer: other pilots
     if (this.state !== 'crashed') {
       let bend = 0;
       if (this.wobbly && this.gNow > 1.5) bend = 0.03 * Math.min(1, (this.gNow - 1.5) / 3) * Math.sin(this.t * 9);
@@ -607,9 +609,9 @@ export class Flight {
     ctx.restore();
     const ca = Math.cos(a), sn = Math.sin(a);
     ctx.font = '700 12px system-ui, sans-serif'; ctx.textAlign = 'center';
-    for (const [lx, ly, name] of labels) {
+    for (const [lx, ly, name, col] of labels) {
       const X = w / 2 + (lx * ca - ly * sn) * s, Y = h / 2 - (lx * sn + ly * ca) * s;
-      ctx.fillStyle = '#000a'; ctx.fillText(name, X + 1, Y - 5); ctx.fillStyle = '#c9f7ff'; ctx.fillText(name, X, Y - 6);
+      ctx.fillStyle = '#000a'; ctx.fillText(name, X + 1, Y - 5); ctx.fillStyle = col || '#c9f7ff'; ctx.fillText(name, X, Y - 6);
     }
     if (this.height * s < 14 && this.state !== 'crashed') {
       const sa2 = this.heading + a;
@@ -834,6 +836,7 @@ export class Flight {
         ctx.fillStyle = '#000a'; ctx.fillText(v.name, sx + 10, sy + 5); ctx.fillStyle = VESSEL_COL[v.vtype] || '#fff'; ctx.fillText(v.name, sx + 9, sy + 4);
       }
     }
+    if (Flight.overlay) Flight.overlay.drawMap(ctx, this, { X, Y, w, h }); // multiplayer: other pilots
     // rocket marker
     ctx.save(); ctx.translate(X(this.px), Y(this.py)); ctx.rotate(-this.heading);
     ctx.beginPath(); ctx.moveTo(11, 0); ctx.lineTo(-7, -7); ctx.lineTo(-3, 0); ctx.lineTo(-7, 7); ctx.closePath();

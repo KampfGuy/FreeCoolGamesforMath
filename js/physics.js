@@ -1,5 +1,5 @@
 // Planet, staging math (delta-v, TWR) and orbit math.
-import { PARTS, G0, FAIR_SHAPES, FAIR_LEN, fairShellMass, fairShellCost, boosterParts } from './parts.js?v=fleet1';
+import { PARTS, G0, FAIR_SHAPES, FAIR_LEN, fairShellMass, fairShellCost, boosterParts } from './parts.js?v=mp1';
 
 export const PLANET = { key: 'numeria', name: 'Numeria', R: 300000, atm: 30000, rho0: 1.2, H: 4500 };
 PLANET.mu = G0 * PLANET.R * PLANET.R;

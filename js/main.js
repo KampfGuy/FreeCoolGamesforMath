@@ -1,11 +1,12 @@
 // FreeCoolGamesforMath.com: rocket builder + flight. Screens, input, missions, HUD.
-import { PARTS, W, TAU, drawStack, FAIR_SHAPES, FAIR_LEN, SIDE_BODIES, SIDE_ENGINES, SIDE_NOSES, fairShellMass } from './parts.js?v=fleet1';
-export const VERSION = 'fleet1';
-import { PLANET, BODIES, designSummary, ORBIT_DV, orbitOf } from './physics.js?v=fleet1';
-import { Flight, WARPS, fmtKm, drawStars, VESSEL_ICON } from './flight.js?v=fleet1';
-import { World } from './world.js?v=fleet1';
-import { EX_SAT, EX_LANDER } from './examples.js?v=fleet1';
-import { Builder } from './builder.js?v=fleet1';
+import { PARTS, W, TAU, drawStack, FAIR_SHAPES, FAIR_LEN, SIDE_BODIES, SIDE_ENGINES, SIDE_NOSES, fairShellMass } from './parts.js?v=mp1';
+export const VERSION = 'mp1';
+import { PLANET, BODIES, designSummary, ORBIT_DV, orbitOf } from './physics.js?v=mp1';
+import { Flight, WARPS, fmtKm, drawStars, VESSEL_ICON } from './flight.js?v=mp1';
+import { World } from './world.js?v=mp1';
+import { EX_SAT, EX_LANDER } from './examples.js?v=mp1';
+import { Builder } from './builder.js?v=mp1';
+import { MP, COLORS, RACE_MISSIONS, fmtTime, normCode } from './mp.js?v=mp1';
 
 const $ = (s) => document.querySelector(s);
 const cv = $('#cv'); const ctx = cv.getContext('2d');
@@ -69,6 +70,8 @@ function show(name) {
   if (name === 'missions') renderMissions();
   if (name === 'hangar') updateStats();
   if (name === 'tracking') renderTracking();
+  if (name === 'mp') renderMpScreen();
+  mpHud();
 }
 const overlay = (id, on) => $('#ov-' + id).classList.toggle('show', on);
 const overlayOpen = (id) => $('#ov-' + id).classList.contains('show');
@@ -199,7 +202,8 @@ function launch() {
   startFlight();
 }
 function startFlight() {
-  if (mission.world) { world = worldSnap ? World.load(worldSnap) : loadWorld(); world.persistent = true; worldSnap = world.serialize(); }
+  if (mp.active) { world = new World(); world.t = mp.sharedT(); } // multiplayer: everyone shares the host's clock
+  else if (mission.world) { world = worldSnap ? World.load(worldSnap) : loadWorld(); world.persistent = true; worldSnap = world.serialize(); }
   else world = new World();
   flight = world.launch(launchStack, { mission: mission.id });
   launchStats = flight.stats;
@@ -213,6 +217,7 @@ function enterFlight() {
   show('flight');
   $('#h-goal').textContent = mission.goal;
   $('#ov-pause [data-act="leave"]').hidden = !(world && world.persistent);
+  $('#ov-pause [data-act="mplobby"]').hidden = !mp.active;
   vesKey = ''; syncButtons();
 }
 function switchTo(v) {
@@ -253,8 +258,8 @@ const act = {
   vessels: () => { $('#hud-v').hidden = !$('#hud-v').hidden; vesKey = ''; syncButtons(); },
   map: () => { view.map = !view.map; syncButtons(); },
   hold: () => { if (!flight) return; flight.hold = HOLDS[(HOLDS.indexOf(flight.hold) + 1) % HOLDS.length]; syncButtons(); },
-  warpUp: () => { if (flight) { flight.warpIdx = Math.min(WARPS.length - 1, flight.warpIdx + 1); syncButtons(); } },
-  warpDown: () => { if (flight) { flight.warpIdx = Math.max(0, flight.warpIdx - 1); syncButtons(); } },
+  warpUp: () => { if (mp.active) { mp.requestWarp(1); return; } if (flight) { flight.warpIdx = Math.min(WARPS.length - 1, flight.warpIdx + 1); syncButtons(); } },
+  warpDown: () => { if (mp.active) { mp.requestWarp(-1); return; } if (flight) { flight.warpIdx = Math.max(0, flight.warpIdx - 1); syncButtons(); } },
   zoomIn: () => { if (view.map) view.mapZoom = Math.min(MAPZ[1], view.mapZoom * 1.6); else view.zoom = Math.min(6, view.zoom * 1.25); },
   zoomOut: () => { if (view.map) view.mapZoom = Math.max(MAPZ[0], view.mapZoom / 1.6); else view.zoom = Math.max(0.0005, view.zoom / 1.25); },
   pause: () => { if (screen !== 'flight' || resultsShown) return; paused = !paused; overlay('pause', paused); },
@@ -279,7 +284,7 @@ function renameVessel(v) {
 }
 $('#b-map').addEventListener('click', act.map);
 $('#b-hold').addEventListener('click', act.hold);
-$('#b-warp').addEventListener('click', (e) => { if (flight && flight.warpIdx >= WARPS.length - 1) { flight.warpIdx = 0; syncButtons(); } else act.warpUp(); });
+$('#b-warp').addEventListener('click', (e) => { if (mp.active) { if (mp.isHost && mp.wantWarp >= WARPS.length - 1) mp.setWarp(0); else mp.requestWarp(1); return; } if (flight && flight.warpIdx >= WARPS.length - 1) { flight.warpIdx = 0; syncButtons(); } else act.warpUp(); });
 $('#b-zin').addEventListener('click', act.zoomIn);
 $('#b-zout').addEventListener('click', act.zoomOut);
 $('#b-pause').addEventListener('click', act.pause);
@@ -304,6 +309,7 @@ $('#ov-pause').addEventListener('click', (e) => {
   if (k === 'tohangar') leaveFlight('hangar');
   if (k === 'leave') { leaveFlight('tracking'); toast('Your craft stay in space. Launch another from the hangar!', 'good'); }
   if (k === 'help') overlay('help', true);
+  if (k === 'mplobby') { overlay('pause', false); paused = false; show('mp'); }
 });
 $('#ov-help').addEventListener('click', (e) => { const a = e.target.closest('button'); if (a && a.dataset.act === 'closehelp') overlay('help', false); });
 
@@ -334,6 +340,8 @@ window.addEventListener('keydown', (e) => {
   if (screen !== 'flight' || !flight) return;
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
+  if (mp.active && (e.code === 'Enter' || e.code === 'NumpadEnter')) { mpFocusChat(); e.preventDefault(); return; }
+  if (mp.active && e.code === 'KeyT') { $('#mp-hud').classList.toggle('min'); return; }
   if (e.code === 'Escape') act.pause();
   if (paused || resultsShown) return;
   switch (e.code) {
@@ -488,13 +496,13 @@ function frame(now) {
   const t = now / 1000;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (screen === 'flight' && flight) {
-    if (!paused && !resultsShown) {
-      flightInput(dt);
-      world.update(dt);
+    if ((!paused || mp.active) && !resultsShown) {
+      if (!paused) flightInput(dt);
+      world.update(mp.active ? dt * mp.syncFlight(world, flight, dt) : dt);
       if (world.active && world.active !== flight) { flight = world.active; syncButtons(); }
       for (const ev of [...flight.events.splice(0), ...world.events.splice(0)]) toast(ev.msg, ev.kind);
       if (world.persistent && (saveT += dt) > 5) { saveT = 0; saveWorld(); }
-      if (!missionDone && mission.check(launchStats, world)) { missionDone = true; toast(`★ Mission complete: ${mission.name}!`, 'good'); }
+      if (!missionDone && mission.check(launchStats, world)) { missionDone = true; toast(`★ Mission complete: ${mission.name}!`, 'good'); if (mp.active) mp.finishRace(mission.id, { cost: launchCost }); }
       if (flight.state !== 'flying') { endTimer += dt; if (endTimer > 2.2) showResults(); }
     }
     flight.render(ctx, cw, ch, view);
@@ -503,6 +511,7 @@ function frame(now) {
     ctx.fillStyle = '#0b1236'; ctx.fillRect(0, 0, cw, ch);
     builder.render(ctx, t);
   } else drawTitle(t);
+  if (mp.active) { mp.decay(dt); mpHudTick(dt); }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -516,11 +525,11 @@ window.__fcgm = {
   get flight() { return flight; }, get world() { return world; }, cycleVessel, switchTo, saveWorld, loadWorld, EX_SAT, EX_LANDER, builder, view, MISSIONS, BODIES, openHangar, launch, show, EX_MOON, EX_HEAVY, VERSION, syncButtons,
   teleport(o) { if (flight) { flight.debugPlace(o); syncButtons(); } },
   setWarp(i) { if (flight) { flight.warpIdx = i; syncButtons(); } },
-  get missionDone() { return missionDone; }, showResults: () => showResults(), pause: (p) => { paused = p; },
+  get missionDone() { return missionDone; }, mp: null, showResults: () => showResults(), pause: (p) => { paused = p; },
 };
 
 // ---------- vessel list (flight HUD) & Tracking screen
-const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function esc(t) { return String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 let vesKey = '';
 function renderVesselList() {
   if (!world) return;
@@ -554,3 +563,88 @@ $('#scr-tracking').addEventListener('click', (e) => {
   if (a === 'launch') { worldSnap = null; openHangar(MISSIONS.find((m) => m.id === 'sandbox')); }
 });
 document.addEventListener('visibilitychange', () => { if (document.hidden && screen === 'flight') saveWorld(); });
+
+// ---------- multiplayer (optional; nothing here runs until the player opens Multiplayer)
+const mp = new MP({
+  flight: () => flight, world: () => world, screen: () => screen, toast,
+  onRace: (id) => { const m = MISSIONS.find((x) => x.id === id); if (!m) return; if (screen === 'flight') leaveFlight('missions'); openHangar(m); },
+  onEnd: () => { Flight.overlay = null; mpHud(); if (screen === 'mp') renderMpScreen(); if (screen === 'flight') syncButtons(); },
+});
+window.__fcgm.mp = mp;
+// network on a timer (not the animation frame) so a hidden tab still answers (~1/s when the browser throttles it)
+let mpLast = performance.now();
+setInterval(() => { const n = performance.now(); if (mp.active) mp.tick(Math.min(1, (n - mpLast) / 1000)); mpLast = n; }, 100);
+let mpColor = store.get('mp.color', COLORS[0]);
+$('#mp-name').value = store.get('mp.name', '');
+function renderMpScreen() {
+  const on = mp.active;
+  $('#mp-setup').hidden = on; $('#mp-lobby').hidden = !on;
+  $('#mp-code-pill').hidden = !on; $('#mp-code-pill').textContent = on ? `Room ${mp.code}` : '';
+  $('#mp-back').dataset.go = 'title';
+  $('#mp-colors').innerHTML = COLORS.map((c) => `<button data-c="${c}" class="${c === mpColor ? 'on' : ''}" style="background:${c}" aria-label="Color ${c}"></button>`).join('');
+  if (!on) return;
+  $('#mp-code-big').textContent = mp.code;
+  $('#mp-race-host').hidden = !mp.isHost;
+  const pick = $('#mp-race-pick');
+  if (!pick.options.length) pick.innerHTML = RACE_MISSIONS.map((id) => MISSIONS.find((m) => m.id === id)).filter(Boolean).map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+  renderMpPlayers(); renderMpChat(); renderRaceBoard();
+}
+const playerRows = () => mp.list.map((p) => `<li><span class="dot" style="background:${p.color}"></span><b>${esc(p.name)}</b>${p.host ? ' 👑' : ''}${p.self ? ' (you)' : ''}<span class="st">${esc(p.status || '')}</span></li>`).join('');
+function renderMpPlayers() { $('#mp-players').innerHTML = playerRows(); $('#mp-count').textContent = `${mp.count} / 6`; }
+const chatHtml = (n) => mp.chat.slice(-n).map((m) => (m.sys ? `<div class="sys">${esc(m.text)}</div>` : `<div><b style="color:${COLORS.includes(m.color) ? m.color : '#fff'}">${esc(m.from)}</b>${esc(m.text)}</div>`)).join('');
+function renderMpChat() { for (const id of ['#mp-chat-log', '#mp-hud-log']) { const el = $(id); el.innerHTML = chatHtml(id === '#mp-hud-log' ? 12 : 60); el.scrollTop = el.scrollHeight; } }
+function raceHtml() {
+  const r = mp.race; if (!r) return '';
+  const m = MISSIONS.find((x) => x.id === r.mission);
+  return `<div class="mp-race"><h3>🏁 Race: ${esc(m ? m.name : r.mission)} ${r.running ? '' : '(finished)'}</h3>${r.results.length ? `<table><tr><th>#</th><th>Pilot</th><th>Time</th><th>Cost</th></tr>${r.results.map((x, i) => `<tr><td>${i + 1}</td><td><b style="color:${COLORS.includes(x.color) ? x.color : '#fff'}">${esc(x.name)}</b></td><td>${fmtTime(x.time)}</td><td>${Math.round(x.cost).toLocaleString()} cr</td></tr>`).join('')}</table>` : '<div class="mg small">No finishers yet. Goal: ' + esc(m ? m.goal : '') + '</div>'}${mp.isHost && r.running ? '<button id="mp-race-end">End race</button>' : ''}</div>`;
+}
+function renderRaceBoard() { $('#mp-race-board').innerHTML = raceHtml(); $('#mp-hud-race').innerHTML = mp.race && mp.race.running ? raceHtml() : ''; }
+function mpHud() {
+  const show = mp.active && (screen === 'flight' || screen === 'hangar' || screen === 'missions');
+  $('#mp-hud').hidden = !show;
+  Flight.overlay = mp.active ? mp : null;
+  if (show) { $('#mp-hud-code').textContent = `Room ${mp.code} · ${mp.count}`; $('#mp-hud-players').innerHTML = playerRows(); renderMpChat(); renderRaceBoard(); }
+}
+let mpHudT = 0;
+function mpHudTick(dt) {
+  if ((mpHudT += dt) < 0.5) return; mpHudT = 0;
+  if (!$('#mp-hud').hidden) { $('#mp-hud-players').innerHTML = playerRows(); $('#mp-hud-code').textContent = `Room ${mp.code} · ${mp.count}`; }
+  if (screen === 'mp') renderMpPlayers();
+  const w = WARPS[mp.warpIdx], want = WARPS[mp.wantWarp || 0];
+  $('#mp-hud-warp').textContent = mp.isHost ? `warp ×${w}${want > w ? ` (asked ×${want})` : ''}` : `warp ×${w} (host)`;
+  if (screen === 'flight' && flight && $('#b-warp').textContent.indexOf('×' + WARPS[flight.warpIdx]) !== 0) syncButtons();
+}
+function mpFocusChat() {
+  const inp = screen === 'mp' ? $('#mp-chat-in') : $('#mp-hud-in');
+  $('#mp-hud').classList.remove('min'); keys.clear(); inp.focus();
+}
+mp.on((what) => {
+  if (what === 'chat' || what === 'chat-new') renderMpChat();
+  if (what === 'chat-new' && screen === 'flight' && $('#mp-hud').classList.contains('min')) { const m = mp.chat[mp.chat.length - 1]; toast(`💬 ${m.from}: ${m.text}`); }
+  if (what === 'race') renderRaceBoard();
+  if (what === 'roster' || what === 'left' || what === 'status') { mpHud(); if (screen === 'mp') renderMpScreen(); }
+});
+function mpNet(msg, err) { const el = $('#mp-net'); el.textContent = msg; el.classList.toggle('err', !!err); }
+function mpSetupData() { const name = $('#mp-name').value.trim() || 'Pilot'; store.set('mp.name', name); store.set('mp.color', mpColor); return { name, color: mpColor }; }
+$('#mp-colors').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; mpColor = b.dataset.c; renderMpScreen(); });
+async function mpGo(fn, label) {
+  for (const b of ['#mp-host', '#mp-join']) $(b).disabled = true;
+  mpNet(label);
+  try { await fn(); mpNet('Connected ✓'); toast(mp.isHost ? `Room ${mp.code} is open. Share the code!` : `Joined room ${mp.code}!`, 'good'); renderMpScreen(); mpHud(); }
+  catch (err) { mpNet(String((err && err.message) || err), true); toast(String((err && err.message) || 'Could not connect.'), 'bad'); }
+  finally { for (const b of ['#mp-host', '#mp-join']) $(b).disabled = false; }
+}
+$('#mp-host').addEventListener('click', () => mpGo(() => mp.host(mpSetupData()), 'Opening a room…'));
+$('#mp-join').addEventListener('click', () => mpGo(() => mp.join({ ...mpSetupData(), code: $('#mp-code').value }), 'Joining…'));
+$('#mp-code').addEventListener('input', (e) => { const c = normCode(e.target.value); if (e.target.value !== c) e.target.value = c; });
+$('#mp-code').addEventListener('keydown', (e) => { if (e.code === 'Enter') $('#mp-join').click(); });
+$('#mp-leave').addEventListener('click', () => { mp.leave(); renderMpScreen(); });
+$('#mp-fly').addEventListener('click', () => show('missions'));
+$('#mp-race-go').addEventListener('click', () => mp.startRace($('#mp-race-pick').value));
+document.addEventListener('click', (e) => { if (e.target && e.target.id === 'mp-race-end') mp.endRace(); });
+for (const [form, inp] of [['#mp-chat-form', '#mp-chat-in'], ['#mp-hud-form', '#mp-hud-in']]) {
+  $(form).addEventListener('submit', (e) => { e.preventDefault(); const el = $(inp); if (mp.say(el.value)) el.value = ''; if (inp === '#mp-hud-in') el.blur(); });
+  $(inp).addEventListener('keydown', (e) => { if (e.code === 'Escape') { e.target.blur(); e.stopPropagation(); } });
+}
+$('#mp-hud-min').addEventListener('click', () => $('#mp-hud').classList.toggle('min'));
+window.addEventListener('beforeunload', () => { if (mp.active) mp.leave(true); });

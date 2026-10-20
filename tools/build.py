@@ -4,7 +4,7 @@ import base64, re, pathlib
 root = pathlib.Path(__file__).resolve().parent.parent
 html = (root / 'index.html').read_text()
 css = (root / 'css/style.css').read_text()
-mods = ['parts', 'physics', 'flight', 'world', 'examples', 'builder', 'main']
+mods = ['parts', 'physics', 'flight', 'world', 'examples', 'builder', 'mp', 'main']
 js = []
 for m in mods:
     src = (root / f'js/{m}.js').read_text()
